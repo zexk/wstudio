@@ -1367,8 +1367,8 @@ pub fn cmdComp(app: *App, args: []const u8) void {
         app.setStatus("comp: expected <take> <start-beat> <end-beat>", .{});
         return;
     };
-    if (words.next() != null or take_number < 2 or start_beat < 0 or end_beat <= start_beat) {
-        app.setStatus("comp: expected alternate take and increasing beat range", .{});
+    if (words.next() != null or take_number < 1 or start_beat < 0 or end_beat <= start_beat) {
+        app.setStatus("comp: expected take and increasing beat range", .{});
         return;
     }
     const clip = clipAtCursor(app, "comp") orelse return;
@@ -1379,12 +1379,13 @@ pub fn cmdComp(app: *App, args: []const u8) void {
             return;
         },
     };
-    const alternate_index = take_number - 2;
-    if (alternate_index >= audio.alternate_takes.len or audio.alternate_takes[alternate_index] == null) {
-        app.setStatus("comp: no such alternate take", .{});
+    const alternate = audio.alternateTake(take_number) orelse {
+        if (take_number == audio.takeNumber())
+            app.setStatus("comp: take is already active", .{})
+        else
+            app.setStatus("comp: no such take", .{});
         return;
-    }
-    const alternate = audio.alternate_takes[alternate_index].?;
+    };
     const active_source = app.session.project.audioSource(audio.source_id) orelse {
         app.setStatus("comp: missing audio source", .{});
         return;

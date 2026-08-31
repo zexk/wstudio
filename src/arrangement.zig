@@ -189,9 +189,23 @@ pub const Clip = struct {
         }
 
         pub fn takeNumber(self: AudioRegion) usize {
-            var number: usize = 1;
+            return self.takeNumberForSource(self.source_id);
+        }
+
+        pub fn alternateTake(self: AudioRegion, number: usize) ?Take {
             for (self.alternate_takes) |take| {
-                if (take != null and take.?.source_id < self.source_id) number += 1;
+                if (take) |candidate| {
+                    if (self.takeNumberForSource(candidate.source_id) == number) return candidate;
+                }
+            }
+            return null;
+        }
+
+        fn takeNumberForSource(self: AudioRegion, source_id: u32) usize {
+            var number: usize = 1;
+            number += @intFromBool(self.source_id < source_id);
+            for (self.alternate_takes) |take| {
+                if (take != null and take.?.source_id < source_id) number += 1;
             }
             return number;
         }
