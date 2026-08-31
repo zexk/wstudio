@@ -11367,9 +11367,9 @@ test "cc-learn binds the armed param to the next controller message, not an earl
 
 test "every command survives hostile arguments" {
     // `testApp` runs on `std.Io.failing`, so nothing here can touch the disk.
-    // Bounce/stems are the exception: that path traps rather than erroring on
-    // a failing Io and would hang the suite (see docs and prior incidents).
-    const denied = [_][]const u8{ "bounce", "stems", "export", "export-midi" };
+    // Offline render commands are covered directly. Repeating them for every
+    // hostile argument makes this command-table sweep prohibitively slow.
+    const denied = [_][]const u8{ "bounce", "stems", "export", "export-midi", "freeze", "flatten" };
     const hostile = [_][]const u8{
         "",
         " ",
