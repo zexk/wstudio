@@ -4202,7 +4202,7 @@ pub const App = struct {
         index: usize,
         last_written: []const u8,
 
-        pub const Source = enum { command_name, drum_kit, synth_preset, euclid, metronome, take, scale, colorscheme };
+        pub const Source = enum { command_name, drum_kit, synth_preset, euclid, metronome, take, comp_take, scale, colorscheme };
 
         pub fn stem(self: *const TabCycle) []const u8 {
             return self.stem_buf[0..self.stem_len];

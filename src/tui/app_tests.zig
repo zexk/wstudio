@@ -8482,6 +8482,23 @@ test ":take Tab cycles next and prev" {
     try std.testing.expectEqualStrings("take prev", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
+test ":comp Tab cycles bounded take numbers" {
+    var app = try App.init(std.testing.allocator, std.Io.failing);
+    defer app.deinit();
+    typeKeys(&app, ":comp ");
+
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("comp 1", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("comp 2", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    for (0..6) |_| app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("comp 8", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("comp ", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("comp 1", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
 test ":snap-scale pulls off-scale notes onto the nearest tone, and sets the scale inline" {
     var app = try pianoRollApp();
     defer app.deinit();

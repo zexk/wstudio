@@ -181,6 +181,8 @@ pub fn completeArgument(self: *App, buf: []const u8, name_end: usize, direction:
         self.cycleCompletion(name_end + 1, arg, .metronome, &.{ "on", "off" }, direction);
     } else if (std.mem.eql(u8, name, "take")) {
         self.cycleCompletion(name_end + 1, arg, .take, &.{ "next", "prev" }, direction);
+    } else if (std.mem.eql(u8, name, "comp")) {
+        self.cycleCompletion(name_end + 1, arg, .comp_take, &.{ "1", "2", "3", "4", "5", "6", "7", "8" }, direction);
     } else if (std.mem.eql(u8, name, "scale") or std.mem.eql(u8, name, "snap-scale")) {
         // First token can be "off", a root pitch class, or a scale-type
         // name (cmdScale accepts either order) - offer all three sets.
