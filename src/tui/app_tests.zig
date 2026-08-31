@@ -3885,6 +3885,22 @@ test "loop recording splits passes into alternate takes" {
     try std.testing.expectEqual(@as(usize, 0), app.session.arrangement.lane(1).?.clips.items.len);
 }
 
+test "loop recording reports when take cap drops old passes" {
+    var app = try testApp();
+    defer app.deinit();
+    app.session.project.tempo_bpm = @as(f64, @floatFromInt(app.session.project.sample_rate)) * 60.0;
+    app.recording_active_len = 1;
+    app.recording_active_buf[0] = 1;
+    app.recording_loop_start_bar = 2;
+    app.recording_loop_end_bar = 4;
+    try app.recording_accum.appendNTimes(app.allocator, 0.5, 80);
+
+    app.finishRecording();
+
+    try std.testing.expectEqual(@as(usize, ws.arrangement.max_audio_takes), app.session.arrangement.lane(1).?.clips.items[0].content.audio.takeCount());
+    try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "take cap kept latest 8") != null);
+}
+
 test "audio region gain and fades edit at arrangement cursor and undo" {
     var app = try arrangementApp();
     defer app.deinit();

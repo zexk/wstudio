@@ -3259,6 +3259,7 @@ pub const App = struct {
         for (targets) |track_idx| history.recordLane(self, track_idx);
 
         var clip_count: usize = 0;
+        var take_cap_reached = false;
         for (0..take_count) |take_index| {
             const lo = take_index * loop_samples;
             const hi = @min(lo + loop_samples, captured.len);
@@ -3273,6 +3274,10 @@ pub const App = struct {
             for (targets) |track_idx| {
                 const lane = self.session.arrangement.lane(track_idx) orelse continue;
                 if (lane.clipAt(start_tick)) |clip| {
+                    const at_take_cap = switch (clip.content) {
+                        .audio => |audio| audio.takeCount() == ws.arrangement.max_audio_takes,
+                        else => false,
+                    };
                     if (clip.start_tick == start_tick and clip.addAudioTake(.{
                         .source_id = source_id,
                         .source_start_frame = 0,
@@ -3282,6 +3287,7 @@ pub const App = struct {
                         // A take longer than the one it joins grows the clip;
                         // reseat so it evicts rather than overlaps.
                         if (lane.clipIndexAt(start_tick)) |idx| lane.reseat(self.allocator, idx) catch {};
+                        take_cap_reached = take_cap_reached or at_take_cap;
                         clip_count += 1;
                         continue;
                     }
@@ -3299,6 +3305,8 @@ pub const App = struct {
         const secs = @as(f64, @floatFromInt(captured_frames)) / sr_f;
         if (self.recording_first_dropout_frame) |frame| {
             self.setStatus("recorded {d} clip(s), dropout {d} frames at frame {d}", .{ clip_count, self.recording_dropout_frames, frame });
+        } else if (take_cap_reached) {
+            self.setStatus("recorded {d} take(s) on {d} track(s) ({d:.1}s); take cap kept latest {d}", .{ take_count, targets.len, secs, ws.arrangement.max_audio_takes });
         } else {
             self.setStatus("recorded {d} take(s) on {d} track(s) ({d:.1}s)", .{ take_count, targets.len, secs });
         }
