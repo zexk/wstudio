@@ -72,6 +72,49 @@ pub fn loadCommandHistory(self: *App) void {
     self.modal.cmd_cursor = len;
 }
 
+pub fn pushSearchHistory(self: *App, text: []const u8) void {
+    if (text.len == 0) return;
+    if (self.search_history.items.len > 0 and
+        std.mem.eql(u8, self.search_history.items[self.search_history.items.len - 1], text))
+    {
+        self.search_history_pos = self.search_history.items.len;
+        return;
+    }
+    const owned = self.allocator.dupe(u8, text) catch return;
+    if (self.search_history.items.len >= self.cmd_history_cap) {
+        self.allocator.free(self.search_history.orderedRemove(0));
+    }
+    self.search_history.append(self.allocator, owned) catch {
+        self.allocator.free(owned);
+        return;
+    };
+    self.search_history_pos = self.search_history.items.len;
+}
+
+pub fn searchHistoryPrev(self: *App) void {
+    if (self.search_history.items.len == 0 or self.search_history_pos == 0) return;
+    self.search_history_pos -= 1;
+    self.loadSearchHistory();
+}
+
+pub fn searchHistoryNext(self: *App) void {
+    if (self.search_history_pos >= self.search_history.items.len) return;
+    self.search_history_pos += 1;
+    if (self.search_history_pos == self.search_history.items.len) {
+        self.modal.cmd_len = 0;
+        self.modal.cmd_cursor = 0;
+    } else {
+        self.loadSearchHistory();
+    }
+}
+
+pub fn loadSearchHistory(self: *App) void {
+    const text = self.search_history.items[self.search_history_pos];
+    const len = copyTruncated(&self.modal.cmd_buf, text);
+    self.modal.cmd_len = len;
+    self.modal.cmd_cursor = len;
+}
+
 /// Tab-completes the command name (before the first space), or - for a
 /// handful of commands whose values come from a small fixed set - the
 /// first argument token after it. Requires the cursor to be at the end

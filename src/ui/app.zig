@@ -1020,6 +1020,9 @@ pub const App = struct {
     /// Position while recalling: `cmd_history.items.len` means "not
     /// recalling - the prompt holds a fresh, unsubmitted line".
     cmd_history_pos: usize = 0,
+    /// Submitted `/` patterns, separate from command history like vim.
+    search_history: std.ArrayListUnmanaged([]const u8) = .empty,
+    search_history_pos: usize = 0,
     /// Set by `:e`/`:new` (see `requestReload`) to ask `run()` to swap the
     /// session on the next loop iteration. `run()` - not App - owns the
     /// audio backend handles, and those hold a raw `*Engine` pointer
@@ -1201,6 +1204,8 @@ pub const App = struct {
         bookmark_store.deinit(self.allocator, &self.bookmarks);
         recent_project_store.deinit(self.allocator, &self.recent_projects);
         cmd_history_store.deinit(self.allocator, &self.cmd_history);
+        for (self.search_history.items) |s| self.allocator.free(s);
+        self.search_history.deinit(self.allocator);
         self.history.deinit(self.allocator);
         self.session.deinit();
     }
@@ -1722,6 +1727,8 @@ pub const App = struct {
         self.cmd_history_cap = user_config.cmd_history_lines;
         while (self.cmd_history.items.len > self.cmd_history_cap) self.allocator.free(self.cmd_history.orderedRemove(0));
         self.cmd_history_pos = self.cmd_history.items.len;
+        while (self.search_history.items.len > self.cmd_history_cap) self.allocator.free(self.search_history.orderedRemove(0));
+        self.search_history_pos = self.search_history.items.len;
         self.default_velocity = user_config.default_velocity;
         self.master_gain_db = user_config.default_master_gain_db;
         _ = self.session.engine.send(.{ .set_master_gain = types.dbToGain(self.master_gain_db) });
@@ -2064,8 +2071,8 @@ pub const App = struct {
         }
 
         // zig fmt: off
-        // Command/search mode: up/down or ctrl-p/n recall history (command only - search
-        // has no history), tab completes the command name (command only).
+        // Command/search mode: up/down or ctrl-p/n recall their separate
+        // histories; tab completes the command name (command only).
         // Left/right/home/end/ctrl-w edit the cmd_buf cursor in place
         // (modal.handle owns that state, shared by both prompts) - passed
         // through as their own variants rather than the hjkl aliasing below,
@@ -2073,8 +2080,8 @@ pub const App = struct {
         // instead of moving through it.
         if (self.modal.mode == .command or self.modal.mode == .search) {
             switch (key_in) {
-                .arrow_up, .ctrl_p => { if (self.modal.mode == .command) self.commandHistoryPrev(); return; },
-                .arrow_down, .ctrl_n => { if (self.modal.mode == .command) self.commandHistoryNext(); return; },
+                .arrow_up, .ctrl_p => { if (self.modal.mode == .command) self.commandHistoryPrev() else self.searchHistoryPrev(); return; },
+                .arrow_down, .ctrl_n => { if (self.modal.mode == .command) self.commandHistoryNext() else self.searchHistoryNext(); return; },
                 .arrow_left, .arrow_right, .home, .end, .ctrl_a, .ctrl_e, .ctrl_u, .ctrl_k, .ctrl_w => { _ = self.modal.handle(key_in); return; },
                 .tab => { if (self.modal.mode == .command) self.completeCommand(); return; },
                 else => {},
@@ -3666,6 +3673,7 @@ pub const App = struct {
                     self.cmd_history_pos = self.cmd_history.items.len;
                     self.suggest_popup_open = false;
                 }
+                if (m == .search) self.search_history_pos = self.search_history.items.len;
                 if (m == .command or m == .search) {
                     // synth/sampler/spectrum have no ':' or '/' arm of their
                     // own, so entering command/search mode from one of
@@ -3803,6 +3811,7 @@ pub const App = struct {
             .search_submit => |text| {
                 // Empty pattern (bare `/` + enter) repeats the last search,
                 // matching vim's `//` convention.
+                self.pushSearchHistory(text);
                 if (text.len > 0) self.setSearchPattern(text);
                 switch (self.view) {
                     .tracks => self.searchTracks(1),
@@ -4090,6 +4099,10 @@ pub const App = struct {
     pub const commandHistoryPrev = app_completion.commandHistoryPrev;
     pub const commandHistoryNext = app_completion.commandHistoryNext;
     pub const loadCommandHistory = app_completion.loadCommandHistory;
+    pub const pushSearchHistory = app_completion.pushSearchHistory;
+    pub const searchHistoryPrev = app_completion.searchHistoryPrev;
+    pub const searchHistoryNext = app_completion.searchHistoryNext;
+    pub const loadSearchHistory = app_completion.loadSearchHistory;
     pub const completeCommand = app_completion.completeCommand;
     pub const completeArgument = app_completion.completeArgument;
     pub const cycleCompletion = app_completion.cycleCompletion;

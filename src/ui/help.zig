@@ -34,7 +34,7 @@ pub const Section = enum {
 /// Collects pre-rendered help lines into a fixed buffer so the view can show
 /// an arbitrary scroll window instead of spilling off the bottom of the screen.
 pub const HelpText = struct {
-    buf: [53248]u8 = undefined,
+    buf: [53504]u8 = undefined,
     len: usize = 0,
     ends: [640]usize = undefined,
     count: usize = 0,
@@ -144,6 +144,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":",            "open command prompt");
     t.key("(in :) up/down","recall previous / next command");
     t.key("(in :) ^P/^N", "recall previous / next command (readline style)");
+    t.key("(in /) up/down", "recall previous / next search (^P/^N also work)");
     t.key("(in :) tab",   "complete the command name");
     t.key("(in :/) ←/→",  "move cursor; home/end or ^A/^E jumps to start/end");
     t.key("(in :/) bs/^W", "delete previous character / word; ^U/^K deletes before / after cursor");

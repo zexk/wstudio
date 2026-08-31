@@ -166,6 +166,34 @@ test "/ fuzzy-searches track names; n/N repeat and wrap around" {
     try std.testing.expectEqual(@as(usize, 1), app.cursor); // reverse: "samp"
 }
 
+test "/ prompt recalls separate search history with arrows and ctrl-p/n" {
+    var app = try testApp();
+    defer app.deinit();
+
+    typeKeys(&app, "/drs");
+    app.handleKey(.enter, 0);
+    typeKeys(&app, "/smp");
+    app.handleKey(.enter, 0);
+
+    app.handleKey(.{ .char = '/' }, 0);
+    app.handleKey(.arrow_up, 0);
+    try std.testing.expectEqualStrings("smp", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.ctrl_p, 0);
+    try std.testing.expectEqualStrings("drs", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.ctrl_n, 0);
+    try std.testing.expectEqualStrings("smp", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.arrow_down, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.modal.cmd_len);
+
+    // Search recall never leaks `:` commands into its separate history.
+    app.handleKey(.escape, 0);
+    typeKeys(&app, ":bpm 90");
+    app.handleKey(.enter, 0);
+    app.handleKey(.{ .char = '/' }, 0);
+    app.handleKey(.arrow_up, 0);
+    try std.testing.expectEqualStrings("smp", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
 test "arrangement: / fuzzy-searches lane (track) names; n/N repeat and wrap" {
     var app = try testApp();
     defer app.deinit();
