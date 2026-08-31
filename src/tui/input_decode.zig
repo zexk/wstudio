@@ -224,6 +224,8 @@ fn parseCsiU(params: []const u8) ?Key {
         27 => return .escape,
         9 => return if (shift) .backtab else .tab,
         127, 8 => return .backspace,
+        57421 => return .ctrl_p,
+        57422 => return .ctrl_n,
         else => {},
     }
     if (text_sec.len > 0) {
@@ -287,11 +289,13 @@ fn decodeTracked(bytes: []const u8, out: []Key) DecodeResult {
                                 1, 7 => .home,
                                 3 => .delete,
                                 4, 8 => .end,
+                                5 => .ctrl_p,
+                                6 => .ctrl_n,
                                 else => null,
                             }
                         else switch (final) {
-                            'A' => .arrow_up,
-                            'B' => .arrow_down,
+                            'A' => if (csiModifiers(params) & 1 != 0) .ctrl_p else .arrow_up,
+                            'B' => if (csiModifiers(params) & 1 != 0) .ctrl_n else .arrow_down,
                             'C' => if (csiModifiers(params) & (1 | 4) != 0) .word_right else .arrow_right,
                             'D' => if (csiModifiers(params) & (1 | 4) != 0) .word_left else .arrow_left,
                             'H' => .home,
@@ -430,6 +434,13 @@ test "decode modified arrows as word motions" {
     var keys: [2]Key = undefined;
     try std.testing.expectEqual(@as(usize, 2), decode("\x1b[1;5D\x1b[1;2C", &keys));
     try std.testing.expectEqualSlices(Key, &.{ .word_left, .word_right }, &keys);
+}
+
+test "decode unfiltered history keys" {
+    var keys: [6]Key = undefined;
+    const n = decode("\x1b[5~\x1b[6~\x1b[1;2A\x1b[1;2B\x1b[57421u\x1b[57422u", &keys);
+    try std.testing.expectEqual(@as(usize, 6), n);
+    try std.testing.expectEqualSlices(Key, &.{ .ctrl_p, .ctrl_n, .ctrl_p, .ctrl_n, .ctrl_p, .ctrl_n }, keys[0..n]);
 }
 
 test "decode shift-tab" {

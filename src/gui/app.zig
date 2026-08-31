@@ -328,6 +328,12 @@ fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
     if (ctrl and zgui.isKeyPressed(.w, false)) return .ctrl_w;
     const shifted = zgui.isKeyDown(.mod_shift);
     if (shifted and mode == .command and zgui.isKeyPressed(.tab, true)) return .backtab;
+    if (mode == .command or mode == .search) {
+        if (shifted and zgui.isKeyPressed(.up_arrow, true)) return .ctrl_p;
+        if (shifted and zgui.isKeyPressed(.down_arrow, true)) return .ctrl_n;
+        if (zgui.isKeyPressed(.page_up, true)) return .ctrl_p;
+        if (zgui.isKeyPressed(.page_down, true)) return .ctrl_n;
+    }
     if ((ctrl or shifted) and (mode == .command or mode == .search)) {
         if (zgui.isKeyPressed(.left_arrow, true)) return .word_left;
         if (zgui.isKeyPressed(.right_arrow, true)) return .word_right;
