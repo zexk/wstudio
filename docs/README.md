@@ -35,6 +35,8 @@ code keeps a one-line pointer.
   semantic color roles, and the category patterns it intentionally avoids.
 - [bundled-sound-batteries.md](bundled-sound-batteries.md): competitor survey
   and ranked post-1.0 backlog for bundled instruments and musical content.
+- [daw-feature-gap-analysis.md](daw-feature-gap-analysis.md): proprietary DAW
+  comparison and ranked post-1.0 workflow gaps.
 
 Contributor tooling, kept here for the same reason:
 
