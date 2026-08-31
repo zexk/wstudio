@@ -142,9 +142,8 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("i",            "enter INSERT mode in tracks and pattern editors (play notes)");
     t.key("esc",          "back / return to NORMAL mode");
     t.key(":",            "open command prompt");
-    t.key("(in :) up/down","recall previous / next command");
-    t.key("(in :) ^P/^N", "recall previous / next command (readline style)");
-    t.key("(in /) up/down", "recall previous / next search (^P/^N also work)");
+    t.key("(in :/) up/down", "recall older / newer history matching text already typed");
+    t.key("(in :/) ^P/^N", "recall older / newer history without filtering");
     t.key("(in :) tab",   "complete the command name");
     t.key("(in :/) ←/→",  "move cursor; home/end or ^A/^E jumps to start/end");
     t.key("(in :/) bs/^W", "delete previous character / word; ^U/^K deletes before / after cursor");

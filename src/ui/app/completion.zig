@@ -26,93 +26,85 @@ const cmds_cap = App.cmds_cap;
 /// entry once at capacity. Persists the updated list to disk (best-
 /// effort - see `cmd_history_store.save`) so it survives across runs.
 pub fn pushCommandHistory(self: *App, text: []const u8) void {
-    if (text.len == 0) return;
-    if (self.cmd_history.items.len > 0 and
-        std.mem.eql(u8, self.cmd_history.items[self.cmd_history.items.len - 1], text))
-    {
-        self.cmd_history_pos = self.cmd_history.items.len;
-        return;
-    }
-    const owned = self.allocator.dupe(u8, text) catch return;
-    if (self.cmd_history.items.len >= self.cmd_history_cap) {
-        self.allocator.free(self.cmd_history.orderedRemove(0));
-    }
-    self.cmd_history.append(self.allocator, owned) catch {
-        self.allocator.free(owned);
-        return;
-    };
-    self.cmd_history_pos = self.cmd_history.items.len;
+    if (!pushHistory(self.allocator, &self.cmd_history, self.cmd_history_cap, text, &self.cmd_history_pos)) return;
     cmd_history_store.save(self.allocator, self.io, self.cmd_history.items) catch {};
 }
 
-/// Step back to the previous history entry.
-pub fn commandHistoryPrev(self: *App) void {
-    if (self.cmd_history.items.len == 0 or self.cmd_history_pos == 0) return;
-    self.cmd_history_pos -= 1;
-    self.loadCommandHistory();
+pub fn commandHistoryPrev(self: *App, match_stem: bool) void {
+    recallPrev(&self.modal, self.cmd_history.items, &self.cmd_history_pos, &self.cmd_history_stem, &self.cmd_history_stem_len, match_stem);
 }
 
-/// Step forward through history; past the newest entry, blank the
-/// prompt (mirrors shell history - you're back to a fresh line).
-pub fn commandHistoryNext(self: *App) void {
-    if (self.cmd_history_pos >= self.cmd_history.items.len) return;
-    self.cmd_history_pos += 1;
-    if (self.cmd_history_pos == self.cmd_history.items.len) {
-        self.modal.cmd_len = 0;
-        self.modal.cmd_cursor = 0;
-    } else {
-        self.loadCommandHistory();
-    }
-}
-
-pub fn loadCommandHistory(self: *App) void {
-    const text = self.cmd_history.items[self.cmd_history_pos];
-    const len = copyTruncated(&self.modal.cmd_buf, text);
-    self.modal.cmd_len = len;
-    self.modal.cmd_cursor = len;
+pub fn commandHistoryNext(self: *App, match_stem: bool) void {
+    recallNext(&self.modal, self.cmd_history.items, &self.cmd_history_pos, &self.cmd_history_stem, self.cmd_history_stem_len, match_stem);
 }
 
 pub fn pushSearchHistory(self: *App, text: []const u8) void {
-    if (text.len == 0) return;
-    if (self.search_history.items.len > 0 and
-        std.mem.eql(u8, self.search_history.items[self.search_history.items.len - 1], text))
-    {
-        self.search_history_pos = self.search_history.items.len;
-        return;
-    }
-    const owned = self.allocator.dupe(u8, text) catch return;
-    if (self.search_history.items.len >= self.cmd_history_cap) {
-        self.allocator.free(self.search_history.orderedRemove(0));
-    }
-    self.search_history.append(self.allocator, owned) catch {
-        self.allocator.free(owned);
-        return;
+    _ = pushHistory(self.allocator, &self.search_history, self.cmd_history_cap, text, &self.search_history_pos);
+}
+
+pub fn searchHistoryPrev(self: *App, match_stem: bool) void {
+    recallPrev(&self.modal, self.search_history.items, &self.search_history_pos, &self.search_history_stem, &self.search_history_stem_len, match_stem);
+}
+
+pub fn searchHistoryNext(self: *App, match_stem: bool) void {
+    recallNext(&self.modal, self.search_history.items, &self.search_history_pos, &self.search_history_stem, self.search_history_stem_len, match_stem);
+}
+
+fn loadHistory(modal: *modal_mod.ModalInput, text: []const u8) void {
+    const len = copyTruncated(&modal.cmd_buf, text);
+    modal.cmd_len = len;
+    modal.cmd_cursor = len;
+}
+
+fn pushHistory(allocator: std.mem.Allocator, history: *std.ArrayListUnmanaged([]const u8), cap: usize, text: []const u8, pos: *usize) bool {
+    if (text.len == 0) return false;
+    const owned = allocator.dupe(u8, text) catch return false;
+    history.ensureUnusedCapacity(allocator, 1) catch {
+        allocator.free(owned);
+        return false;
     };
-    self.search_history_pos = self.search_history.items.len;
+    for (history.items, 0..) |old, i| {
+        if (std.mem.eql(u8, old, text)) {
+            allocator.free(history.orderedRemove(i));
+            break;
+        }
+    }
+    if (history.items.len >= cap) allocator.free(history.orderedRemove(0));
+    history.appendAssumeCapacity(owned);
+    pos.* = history.items.len;
+    return true;
 }
 
-pub fn searchHistoryPrev(self: *App) void {
-    if (self.search_history.items.len == 0 or self.search_history_pos == 0) return;
-    self.search_history_pos -= 1;
-    self.loadSearchHistory();
-}
-
-pub fn searchHistoryNext(self: *App) void {
-    if (self.search_history_pos >= self.search_history.items.len) return;
-    self.search_history_pos += 1;
-    if (self.search_history_pos == self.search_history.items.len) {
-        self.modal.cmd_len = 0;
-        self.modal.cmd_cursor = 0;
-    } else {
-        self.loadSearchHistory();
+fn recallPrev(modal: *modal_mod.ModalInput, history: []const []const u8, pos: *usize, stem_buf: *[modal_mod.ModalInput.max_cmd_len]u8, stem_len: *usize, match_stem: bool) void {
+    if (history.len == 0 or pos.* == 0) return;
+    if (pos.* == history.len) {
+        stem_len.* = copyTruncated(stem_buf, modal.cmd_buf[0..modal.cmd_len]);
+    }
+    const stem = stem_buf[0..stem_len.*];
+    var i = pos.*;
+    while (i > 0) {
+        i -= 1;
+        if (!match_stem or std.mem.startsWith(u8, history[i], stem)) {
+            pos.* = i;
+            loadHistory(modal, history[i]);
+            return;
+        }
     }
 }
 
-pub fn loadSearchHistory(self: *App) void {
-    const text = self.search_history.items[self.search_history_pos];
-    const len = copyTruncated(&self.modal.cmd_buf, text);
-    self.modal.cmd_len = len;
-    self.modal.cmd_cursor = len;
+fn recallNext(modal: *modal_mod.ModalInput, history: []const []const u8, pos: *usize, stem_buf: *const [modal_mod.ModalInput.max_cmd_len]u8, stem_len: usize, match_stem: bool) void {
+    if (pos.* >= history.len) return;
+    const stem = stem_buf[0..stem_len];
+    var i = pos.* + 1;
+    while (i < history.len) : (i += 1) {
+        if (!match_stem or std.mem.startsWith(u8, history[i], stem)) {
+            pos.* = i;
+            loadHistory(modal, history[i]);
+            return;
+        }
+    }
+    pos.* = history.len;
+    loadHistory(modal, stem);
 }
 
 /// Tab-completes the command name (before the first space), or - for a

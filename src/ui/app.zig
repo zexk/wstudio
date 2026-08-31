@@ -1020,9 +1020,13 @@ pub const App = struct {
     /// Position while recalling: `cmd_history.items.len` means "not
     /// recalling - the prompt holds a fresh, unsubmitted line".
     cmd_history_pos: usize = 0,
+    cmd_history_stem: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
+    cmd_history_stem_len: usize = 0,
     /// Submitted `/` patterns, separate from command history like vim.
     search_history: std.ArrayListUnmanaged([]const u8) = .empty,
     search_history_pos: usize = 0,
+    search_history_stem: [modal_mod.ModalInput.max_cmd_len]u8 = undefined,
+    search_history_stem_len: usize = 0,
     /// Set by `:e`/`:new` (see `requestReload`) to ask `run()` to swap the
     /// session on the next loop iteration. `run()` - not App - owns the
     /// audio backend handles, and those hold a raw `*Engine` pointer
@@ -2080,8 +2084,10 @@ pub const App = struct {
         // instead of moving through it.
         if (self.modal.mode == .command or self.modal.mode == .search) {
             switch (key_in) {
-                .arrow_up, .ctrl_p => { if (self.modal.mode == .command) self.commandHistoryPrev() else self.searchHistoryPrev(); return; },
-                .arrow_down, .ctrl_n => { if (self.modal.mode == .command) self.commandHistoryNext() else self.searchHistoryNext(); return; },
+                .arrow_up => { if (self.modal.mode == .command) self.commandHistoryPrev(true) else self.searchHistoryPrev(true); return; },
+                .arrow_down => { if (self.modal.mode == .command) self.commandHistoryNext(true) else self.searchHistoryNext(true); return; },
+                .ctrl_p => { if (self.modal.mode == .command) self.commandHistoryPrev(false) else self.searchHistoryPrev(false); return; },
+                .ctrl_n => { if (self.modal.mode == .command) self.commandHistoryNext(false) else self.searchHistoryNext(false); return; },
                 .arrow_left, .arrow_right, .home, .end, .ctrl_a, .ctrl_e, .ctrl_u, .ctrl_k, .ctrl_w => { _ = self.modal.handle(key_in); return; },
                 .tab => { if (self.modal.mode == .command) self.completeCommand(); return; },
                 else => {},
@@ -4098,11 +4104,9 @@ pub const App = struct {
     pub const pushCommandHistory = app_completion.pushCommandHistory;
     pub const commandHistoryPrev = app_completion.commandHistoryPrev;
     pub const commandHistoryNext = app_completion.commandHistoryNext;
-    pub const loadCommandHistory = app_completion.loadCommandHistory;
     pub const pushSearchHistory = app_completion.pushSearchHistory;
     pub const searchHistoryPrev = app_completion.searchHistoryPrev;
     pub const searchHistoryNext = app_completion.searchHistoryNext;
-    pub const loadSearchHistory = app_completion.loadSearchHistory;
     pub const completeCommand = app_completion.completeCommand;
     pub const completeArgument = app_completion.completeArgument;
     pub const cycleCompletion = app_completion.cycleCompletion;

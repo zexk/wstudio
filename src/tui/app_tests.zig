@@ -185,6 +185,17 @@ test "/ prompt recalls separate search history with arrows and ctrl-p/n" {
     app.handleKey(.arrow_down, 0);
     try std.testing.expectEqual(@as(usize, 0), app.modal.cmd_len);
 
+    // Arrows match the typed stem and restore that draft past the newest hit.
+    typeKeys(&app, "d");
+    app.handleKey(.arrow_up, 0);
+    try std.testing.expectEqualStrings("drs", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.arrow_down, 0);
+    try std.testing.expectEqualStrings("d", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    // Ctrl-P ignores the stem and walks the whole search history.
+    app.handleKey(.ctrl_p, 0);
+    try std.testing.expectEqualStrings("smp", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
     // Search recall never leaks `:` commands into its separate history.
     app.handleKey(.escape, 0);
     typeKeys(&app, ":bpm 90");
@@ -7774,6 +7785,33 @@ test "command prompt: up/down recall history without corrupting the buffer" {
     try std.testing.expectEqualStrings("bpm 140", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     app.handleKey(.escape, 0);
+
+    // Vim-style arrows filter by the text already typed and restore it when
+    // moving forward past the newest match.
+    typeKeys(&app, ":bpm 1");
+    app.handleKey(.arrow_up, 0);
+    try std.testing.expectEqualStrings("bpm 140", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.arrow_up, 0);
+    try std.testing.expectEqualStrings("bpm 100", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.arrow_down, 0);
+    try std.testing.expectEqualStrings("bpm 140", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.arrow_down, 0);
+    try std.testing.expectEqualStrings("bpm 1", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    // Ctrl-P is unfiltered, so a non-matching draft still recalls newest.
+    app.handleKey(.escape, 0);
+    typeKeys(&app, ":gain");
+    app.handleKey(.arrow_up, 0);
+    try std.testing.expectEqualStrings("gain", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.ctrl_p, 0);
+    try std.testing.expectEqualStrings("bpm 140", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.escape, 0);
+
+    // Reusing an older entry moves it to newest instead of duplicating it.
+    app.pushCommandHistory("bpm 100");
+    try std.testing.expectEqual(@as(usize, 2), app.cmd_history.items.len);
+    try std.testing.expectEqualStrings("bpm 140", app.cmd_history.items[0]);
+    try std.testing.expectEqualStrings("bpm 100", app.cmd_history.items[1]);
 }
 
 test "arrow keys act as hjkl outside command mode" {
