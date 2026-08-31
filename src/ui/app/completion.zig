@@ -345,6 +345,20 @@ pub fn completionActive(self: *const App) bool {
         std.mem.eql(u8, tc.last_written, self.modal.cmd_buf[tc.insert_at..self.modal.cmd_len]);
 }
 
+/// Ctrl-E during completion restores the exact token typed before Tab.
+/// Outside an active cycle App leaves Ctrl-E to normal end-of-line motion.
+pub fn cancelCompletion(self: *App) bool {
+    if (!self.completionActive()) return false;
+    const tc = &self.tab_cycle.?;
+    const new_end = tc.insert_at + tc.stem_len;
+    @memcpy(self.modal.cmd_buf[tc.insert_at..new_end], tc.stem());
+    self.modal.cmd_len = new_end;
+    self.modal.cmd_cursor = new_end;
+    self.tab_cycle = null;
+    self.suggest_popup_open = false;
+    return true;
+}
+
 /// Which match `draw`'s command-name suggestion popup should highlight:
 /// otherwise 0 - the top match, matching Neovim's wildmenu highlighting
 /// the first candidate before Tab has ever been pressed.

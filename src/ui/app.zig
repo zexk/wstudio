@@ -2096,7 +2096,8 @@ pub const App = struct {
                 .ctrl_n => { if (self.modal.mode == .command and self.completionActive()) self.completeCommand(1) else if (self.modal.mode == .command) self.commandHistoryNext(false) else self.searchHistoryNext(false); return; },
                 .history_prev => { if (self.modal.mode == .command) self.commandHistoryPrev(false) else self.searchHistoryPrev(false); return; },
                 .history_next => { if (self.modal.mode == .command) self.commandHistoryNext(false) else self.searchHistoryNext(false); return; },
-                .arrow_left, .arrow_right, .word_left, .word_right, .home, .end, .backspace, .delete, .ctrl_a, .ctrl_e, .ctrl_u, .ctrl_k, .ctrl_w => { _ = self.modal.handle(key_in); return; },
+                .ctrl_e => { if (self.modal.mode != .command or !self.cancelCompletion()) _ = self.modal.handle(key_in); return; },
+                .arrow_left, .arrow_right, .word_left, .word_right, .home, .end, .backspace, .delete, .ctrl_a, .ctrl_u, .ctrl_k, .ctrl_w => { _ = self.modal.handle(key_in); return; },
                 .tab => { if (self.modal.mode == .command) self.completeCommand(1); return; },
                 .backtab => { if (self.modal.mode == .command) self.completeCommand(-1); return; },
                 else => {},
@@ -4120,6 +4121,7 @@ pub const App = struct {
     pub const completeArgument = app_completion.completeArgument;
     pub const cycleCompletion = app_completion.cycleCompletion;
     pub const completionActive = app_completion.completionActive;
+    pub const cancelCompletion = app_completion.cancelCompletion;
     pub const activeCommandCycle = app_completion.activeCommandCycle;
     pub const suggestionSelected = app_completion.suggestionSelected;
     pub const suggestionFilterText = app_completion.suggestionFilterText;

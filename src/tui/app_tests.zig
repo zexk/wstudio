@@ -8190,6 +8190,9 @@ test "Ctrl-P and Ctrl-N cycle an active Tab completion" {
     try std.testing.expectEqualStrings("quit!", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.ctrl_p, 0);
     try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.ctrl_e, 0);
+    try std.testing.expectEqualStrings("q", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    try std.testing.expect(!app.completionActive());
 
     app.modal.cmd_len = 0;
     app.modal.cmd_cursor = 0;
@@ -8200,6 +8203,8 @@ test "Ctrl-P and Ctrl-N cycle an active Tab completion" {
     try std.testing.expectEqualStrings("metronome off", app.modal.cmd_buf[0..app.modal.cmd_len]);
     app.handleKey(.ctrl_p, 0);
     try std.testing.expectEqualStrings("metronome on", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.ctrl_e, 0);
+    try std.testing.expectEqualStrings("metronome ", app.modal.cmd_buf[0..app.modal.cmd_len]);
 
     app.pushCommandHistory("bpm 120");
     app.handleKey(.history_prev, 0);
