@@ -113,12 +113,12 @@ fn recallNext(modal: *modal_mod.ModalInput, history: []const []const u8, pos: *u
 /// first argument token after it. Requires the cursor to be at the end
 /// of the buffer: completing a token with more already typed after it
 /// has no obvious insertion point, so mid-line Tab is a no-op.
-pub fn completeCommand(self: *App) void {
+pub fn completeCommand(self: *App, direction: i32) void {
     const buf = self.modal.cmd_buf[0..self.modal.cmd_len];
     if (buf.len == 0 or self.modal.cmd_cursor != self.modal.cmd_len) return;
 
     if (std.mem.indexOfScalar(u8, buf, ' ')) |sp| {
-        self.completeArgument(buf, sp);
+        self.completeArgument(buf, sp, direction);
         return;
     }
 
@@ -133,7 +133,7 @@ pub fn completeCommand(self: *App) void {
         name_buf[n] = c.name;
         n += 1;
     }
-    self.cycleCompletion(0, buf, .command_name, name_buf[0..n]);
+    self.cycleCompletion(0, buf, .command_name, name_buf[0..n], direction);
 }
 
 /// Tab-completes the argument after `buf[0..name_end]` against a small
@@ -143,7 +143,7 @@ pub fn completeCommand(self: *App) void {
 /// being typed, which has no fixed candidate list here); every other
 /// command's arguments (track numbers, dB values, paths, ...) aren't
 /// completable from a fixed list, so this is a no-op for those.
-pub fn completeArgument(self: *App, buf: []const u8, name_end: usize) void {
+pub fn completeArgument(self: *App, buf: []const u8, name_end: usize, direction: i32) void {
     const name = buf[0..name_end];
     const arg = buf[name_end + 1 ..];
     if (std.mem.indexOfScalar(u8, arg, ' ') != null) return;
@@ -156,7 +156,7 @@ pub fn completeArgument(self: *App, buf: []const u8, name_end: usize) void {
             name_buf[n] = v.name;
             n += 1;
         }
-        self.cycleCompletion(name_end + 1, arg, .drum_kit, name_buf[0..n]);
+        self.cycleCompletion(name_end + 1, arg, .drum_kit, name_buf[0..n], direction);
     } else if (std.mem.eql(u8, name, "synth-preset") or (std.mem.eql(u8, name, "preset") and active == .synth)) {
         var n: usize = 0;
         for (self.user_synth_presets.items) |p| {
@@ -169,16 +169,16 @@ pub fn completeArgument(self: *App, buf: []const u8, name_end: usize) void {
             name_buf[n] = p.name;
             n += 1;
         }
-        self.cycleCompletion(name_end + 1, arg, .synth_preset, name_buf[0..n]);
+        self.cycleCompletion(name_end + 1, arg, .synth_preset, name_buf[0..n], direction);
     } else if (std.mem.eql(u8, name, "euclid")) {
         var n: usize = 0;
         for (commands.euclid_presets) |preset| {
             name_buf[n] = preset.name;
             n += 1;
         }
-        self.cycleCompletion(name_end + 1, arg, .euclid, name_buf[0..n]);
+        self.cycleCompletion(name_end + 1, arg, .euclid, name_buf[0..n], direction);
     } else if (std.mem.eql(u8, name, "metronome")) {
-        self.cycleCompletion(name_end + 1, arg, .metronome, &.{ "on", "off" });
+        self.cycleCompletion(name_end + 1, arg, .metronome, &.{ "on", "off" }, direction);
     } else if (std.mem.eql(u8, name, "scale") or std.mem.eql(u8, name, "snap-scale")) {
         // First token can be "off", a root pitch class, or a scale-type
         // name (cmdScale accepts either order) - offer all three sets.
@@ -197,7 +197,7 @@ pub fn completeArgument(self: *App, buf: []const u8, name_end: usize) void {
             name_buf[n] = t.label();
             n += 1;
         }
-        self.cycleCompletion(name_end + 1, arg, .scale, name_buf[0..n]);
+        self.cycleCompletion(name_end + 1, arg, .scale, name_buf[0..n], direction);
     } else if (std.mem.eql(u8, name, "colorscheme") or std.mem.eql(u8, name, "colo")) {
         // TUI also offers "none" (turns the terminal-palette theme back
         // off); the GUI panel skin has no such state.
@@ -211,7 +211,7 @@ pub fn completeArgument(self: *App, buf: []const u8, name_end: usize) void {
             name_buf[n] = @tagName(t);
             n += 1;
         }
-        self.cycleCompletion(name_end + 1, arg, .colorscheme, name_buf[0..n]);
+        self.cycleCompletion(name_end + 1, arg, .colorscheme, name_buf[0..n], direction);
     }
 }
 
@@ -238,7 +238,7 @@ const Ranker = struct {
 /// or switching commands all fail that check, so the next Tab starts
 /// over - no separate reset wiring needed). A single match always
 /// completes in full plus a trailing space, cycle or not.
-pub fn cycleCompletion(self: *App, insert_at: usize, current_text: []const u8, source: TabCycle.Source, values: []const []const u8) void {
+pub fn cycleCompletion(self: *App, insert_at: usize, current_text: []const u8, source: TabCycle.Source, values: []const []const u8, direction: i32) void {
     var stem_buf: [modal_mod.ModalInput.max_cmd_len]u8 = undefined;
     var stem: []const u8 = undefined;
     var prev_index: ?usize = null;
@@ -301,7 +301,12 @@ pub fn cycleCompletion(self: *App, insert_at: usize, current_text: []const u8, s
         return;
     }
 
-    const index = if (prev_index) |pi| (pi + 1) % match_count else 0;
+    const index: usize = if (prev_index) |pi|
+        @intCast(@mod(@as(i64, @intCast(pi)) + direction, @as(i64, @intCast(match_count))))
+    else if (direction < 0)
+        match_count - 1
+    else
+        0;
     const candidate = values[match_idx[index]];
     const new_end = insert_at + candidate.len;
     if (new_end > self.modal.cmd_buf.len) return;

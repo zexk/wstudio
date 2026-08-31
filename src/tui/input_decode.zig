@@ -222,7 +222,7 @@ fn parseCsiU(params: []const u8) ?Key {
     if (chorded) return null;
     switch (keycode) {
         27 => return .escape,
-        9 => return .tab,
+        9 => return if (shift) .backtab else .tab,
         127, 8 => return .backspace,
         else => {},
     }
@@ -296,6 +296,7 @@ fn decodeTracked(bytes: []const u8, out: []Key) DecodeResult {
                             'D' => if (csiModifiers(params) & (1 | 4) != 0) .word_left else .arrow_left,
                             'H' => .home,
                             'F' => .end,
+                            'Z' => .backtab,
                             else => null,
                         };
                         if (mapped) |k| {
@@ -429,6 +430,12 @@ test "decode modified arrows as word motions" {
     var keys: [2]Key = undefined;
     try std.testing.expectEqual(@as(usize, 2), decode("\x1b[1;5D\x1b[1;2C", &keys));
     try std.testing.expectEqualSlices(Key, &.{ .word_left, .word_right }, &keys);
+}
+
+test "decode shift-tab" {
+    var keys: [2]Key = undefined;
+    try std.testing.expectEqual(@as(usize, 2), decode("\x1b[Z\x1b[9;2u", &keys));
+    try std.testing.expectEqualSlices(Key, &.{ .backtab, .backtab }, &keys);
 }
 
 test "stream decoder preserves escape sequences split across reads" {

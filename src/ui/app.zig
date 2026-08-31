@@ -2091,7 +2091,8 @@ pub const App = struct {
                 .ctrl_p => { if (self.modal.mode == .command) self.commandHistoryPrev(false) else self.searchHistoryPrev(false); return; },
                 .ctrl_n => { if (self.modal.mode == .command) self.commandHistoryNext(false) else self.searchHistoryNext(false); return; },
                 .arrow_left, .arrow_right, .word_left, .word_right, .home, .end, .backspace, .delete, .ctrl_a, .ctrl_e, .ctrl_u, .ctrl_k, .ctrl_w => { _ = self.modal.handle(key_in); return; },
-                .tab => { if (self.modal.mode == .command) self.completeCommand(); return; },
+                .tab => { if (self.modal.mode == .command) self.completeCommand(1); return; },
+                .backtab => { if (self.modal.mode == .command) self.completeCommand(-1); return; },
                 else => {},
             }
         }

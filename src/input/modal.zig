@@ -62,6 +62,7 @@ pub const Key = union(enum) {
     /// Command-mode completion (App.handleKey completes the typed command
     /// name against the command table); ignored elsewhere.
     tab,
+    backtab,
     /// Intercepted by the frontend (quit); modal layer ignores it.
     ctrl_c,
     /// Intercepted by App.handleKey before it reaches the modal layer at all
@@ -450,7 +451,7 @@ pub const ModalInput = struct {
             // left to do here. `.escape`/`.enter` never actually reach this
             // switch (handleCommand/handleSearch intercept them first) but
             // still need an arm for exhaustiveness.
-            .escape, .enter, .enter_release, .arrow_up, .arrow_down, .ctrl_p, .ctrl_n, .tab, .ctrl_c, .ctrl_r, .mouse => return .none,
+            .escape, .enter, .enter_release, .arrow_up, .arrow_down, .ctrl_p, .ctrl_n, .tab, .backtab, .ctrl_c, .ctrl_r, .mouse => return .none,
         }
     }
 };

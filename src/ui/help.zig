@@ -144,7 +144,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key(":",            "open command prompt");
     t.key("(in :/) up/down", "recall older / newer history matching text already typed");
     t.key("(in :/) ^P/^N", "recall older / newer history without filtering");
-    t.key("(in :) tab",   "complete the command name");
+    t.key("(in :) tab/S-tab", "complete next / previous command or argument");
     t.key("(in :/) ←/→",  "move cursor; home/end or ^A/^E jumps to start/end");
     t.key("(in :/) ^←/^→", "move cursor one word left / right (shift-arrows also work)");
     t.key("(in :/) bs/del", "delete before / under cursor; ^W deletes previous word; ^U/^K deletes before / after cursor");

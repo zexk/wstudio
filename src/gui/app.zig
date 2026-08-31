@@ -327,6 +327,7 @@ fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
     if (ctrl and zgui.isKeyPressed(.u, false)) return .ctrl_u;
     if (ctrl and zgui.isKeyPressed(.w, false)) return .ctrl_w;
     const shifted = zgui.isKeyDown(.mod_shift);
+    if (shifted and mode == .command and zgui.isKeyPressed(.tab, true)) return .backtab;
     if ((ctrl or shifted) and (mode == .command or mode == .search)) {
         if (zgui.isKeyPressed(.left_arrow, true)) return .word_left;
         if (zgui.isKeyPressed(.right_arrow, true)) return .word_right;
@@ -381,6 +382,7 @@ test "GUI key repeat stays on navigation and prompt editing" {
     try std.testing.expect(keyRepeats(.command, .backspace));
     try std.testing.expect(keyRepeats(.search, .delete));
     try std.testing.expect(keyRepeats(.command, .word_left));
+    try std.testing.expect(!keyRepeats(.command, .backtab));
     try std.testing.expect(keyRepeats(.search, .{ .char = 'x' }));
     try std.testing.expect(keyRepeats(.normal, .{ .char = '+' }));
     try std.testing.expect(keyRepeats(.normal, .{ .char = '}' }));
