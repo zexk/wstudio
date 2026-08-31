@@ -318,6 +318,7 @@ fn keyRepeats(mode: ws.input.Mode, key: ws.input.Key) bool {
 fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
     const ctrl = zgui.isKeyDown(.mod_ctrl);
     if (ctrl and zgui.isKeyPressed(.a, false)) return .ctrl_a;
+    if (ctrl and zgui.isKeyPressed(.b, false)) return .ctrl_b;
     if (ctrl and zgui.isKeyPressed(.c, false)) return .ctrl_c;
     if (ctrl and zgui.isKeyPressed(.e, false)) return .ctrl_e;
     if (ctrl and zgui.isKeyPressed(.k, false)) return .ctrl_k;

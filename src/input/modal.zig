@@ -50,6 +50,7 @@ pub const Key = union(enum) {
     /// Readline-style prompt editing: start/end of line, delete before/after
     /// the cursor, and previous/next command history.
     ctrl_a,
+    ctrl_b,
     ctrl_e,
     ctrl_u,
     ctrl_k,
@@ -417,7 +418,7 @@ pub const ModalInput = struct {
                 self.cmd_cursor = self.cmd_len;
                 return .none;
             },
-            .ctrl_a => {
+            .ctrl_a, .ctrl_b => {
                 self.cmd_cursor = 0;
                 return .none;
             },
@@ -583,6 +584,9 @@ test "command mode: readline controls navigate and delete around the cursor" {
     try std.testing.expectEqual(@as(usize, 0), input.cmd_cursor);
     _ = input.handle(.ctrl_e);
     try std.testing.expectEqual(input.cmd_len, input.cmd_cursor);
+    _ = input.handle(.ctrl_b);
+    try std.testing.expectEqual(@as(usize, 0), input.cmd_cursor);
+    _ = input.handle(.ctrl_e);
 
     for (0..2) |_| _ = input.handle(.arrow_left);
     _ = input.handle(.ctrl_k);

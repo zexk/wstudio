@@ -145,7 +145,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("(in :/) up/down", "recall older / newer history matching text already typed");
     t.key("(in :/) ^P/^N", "previous / next completion after tab; otherwise history (also page or shift-up/down)");
     t.key("(in :) tab/S-tab", "cycle command or argument; ^Y accepts");
-    t.key("(in :/) ←/→",  "move cursor; home/end or ^A/^E jumps to start/end (^E restores text during completion)");
+    t.key("(in :/) ←/→",  "move cursor; home/end or ^A/^B/^E jumps to start/start/end (^E restores completion stem)");
     t.key("(in :/) ^←/^→", "move cursor one word left / right (shift-arrows also work)");
     t.key("(in :/) bs/del", "delete before / under cursor; ^W deletes previous word; ^U/^K deletes before / after cursor");
     t.key(":recent",      "open one of the 10 most recently loaded or saved projects");

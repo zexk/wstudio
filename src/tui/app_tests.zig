@@ -11556,10 +11556,10 @@ test "random key sequences never panic in any view" {
     // non-char variants a real terminal can deliver.
     const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 :/?.,<>[]{}-+=!*#$%\"'";
     const specials = [_]modal_mod.Key{
-        .escape,   .enter,      .enter_release, .backspace,    .delete,    .tab,        .backtab,
-        .arrow_up, .arrow_down, .arrow_left,    .arrow_right,  .word_left, .word_right, .home,
-        .end,      .ctrl_w,     .ctrl_a,        .ctrl_e,       .ctrl_u,    .ctrl_k,     .ctrl_p,
-        .ctrl_n,   .ctrl_y,     .history_prev,  .history_next, .ctrl_r,
+        .escape,   .enter,      .enter_release, .backspace,    .delete,       .tab,        .backtab,
+        .arrow_up, .arrow_down, .arrow_left,    .arrow_right,  .word_left,    .word_right, .home,
+        .end,      .ctrl_w,     .ctrl_a,        .ctrl_b,       .ctrl_e,       .ctrl_u,     .ctrl_k,
+        .ctrl_p,   .ctrl_n,     .ctrl_y,        .history_prev, .history_next, .ctrl_r,
     };
 
     var prng = std.Random.DefaultPrng.init(0x5eed);
