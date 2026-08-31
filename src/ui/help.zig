@@ -143,7 +143,7 @@ pub fn buildHelp(t: *HelpText, cmds: []const cmd_mod.Def, keymaps: []const confi
     t.key("esc",          "back / return to NORMAL mode");
     t.key(":",            "open command prompt");
     t.key("(in :/) up/down", "recall older / newer history matching text already typed");
-    t.key("(in :/) ^P/^N", "recall older / newer history without filtering (also page up/down or shift-up/down)");
+    t.key("(in :/) ^P/^N", "previous / next completion after tab; otherwise history (also page or shift-up/down)");
     t.key("(in :) tab/S-tab", "complete next / previous command or argument");
     t.key("(in :/) ←/→",  "move cursor; home/end or ^A/^E jumps to start/end");
     t.key("(in :/) ^←/^→", "move cursor one word left / right (shift-arrows also work)");

@@ -303,7 +303,7 @@ pub fn pushChar(codepoint: u21) void {
 fn keyRepeats(mode: ws.input.Mode, key: ws.input.Key) bool {
     return switch (mode) {
         .command, .search => switch (key) {
-            .char, .backspace, .delete, .arrow_up, .arrow_down, .arrow_left, .arrow_right, .word_left, .word_right => true,
+            .char, .backspace, .delete, .arrow_up, .arrow_down, .arrow_left, .arrow_right, .word_left, .word_right, .history_prev, .history_next => true,
             else => false,
         },
         .normal, .visual => switch (key) {
@@ -329,10 +329,10 @@ fn pressedModalKey(mode: ws.input.Mode) ?ws.input.Key {
     const shifted = zgui.isKeyDown(.mod_shift);
     if (shifted and mode == .command and zgui.isKeyPressed(.tab, true)) return .backtab;
     if (mode == .command or mode == .search) {
-        if (shifted and zgui.isKeyPressed(.up_arrow, true)) return .ctrl_p;
-        if (shifted and zgui.isKeyPressed(.down_arrow, true)) return .ctrl_n;
-        if (zgui.isKeyPressed(.page_up, true)) return .ctrl_p;
-        if (zgui.isKeyPressed(.page_down, true)) return .ctrl_n;
+        if (shifted and zgui.isKeyPressed(.up_arrow, true)) return .history_prev;
+        if (shifted and zgui.isKeyPressed(.down_arrow, true)) return .history_next;
+        if (zgui.isKeyPressed(.page_up, true)) return .history_prev;
+        if (zgui.isKeyPressed(.page_down, true)) return .history_next;
     }
     if ((ctrl or shifted) and (mode == .command or mode == .search)) {
         if (zgui.isKeyPressed(.left_arrow, true)) return .word_left;

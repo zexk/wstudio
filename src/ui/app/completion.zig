@@ -328,13 +328,21 @@ pub fn cycleCompletion(self: *App, insert_at: usize, current_text: []const u8, s
 /// that needs to outlive this call.
 pub fn activeCommandCycle(self: *const App) ?*const TabCycle {
     if (self.tab_cycle) |*tc| {
-        if (tc.insert_at == 0 and tc.source == .command_name and
-            std.mem.eql(u8, tc.last_written, self.modal.cmd_buf[0..self.modal.cmd_len]))
-        {
+        if (tc.insert_at == 0 and tc.source == .command_name and self.completionActive()) {
             return tc;
         }
     }
     return null;
+}
+
+/// Whether cmd_buf still contains the candidate written by the active Tab
+/// cycle. Ctrl-P/Ctrl-N use this to cycle completion only until typing or
+/// cursor movement invalidates it, then return to history traversal.
+pub fn completionActive(self: *const App) bool {
+    const tc = self.tab_cycle orelse return false;
+    return self.modal.cmd_cursor == self.modal.cmd_len and
+        tc.insert_at <= self.modal.cmd_len and
+        std.mem.eql(u8, tc.last_written, self.modal.cmd_buf[tc.insert_at..self.modal.cmd_len]);
 }
 
 /// Which match `draw`'s command-name suggestion popup should highlight:

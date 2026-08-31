@@ -8179,6 +8179,33 @@ test "Shift-Tab starts argument completion from the last match" {
     try std.testing.expectEqualStrings("metronome on", app.modal.cmd_buf[0..app.modal.cmd_len]);
 }
 
+test "Ctrl-P and Ctrl-N cycle an active Tab completion" {
+    var app = try testApp();
+    defer app.deinit();
+
+    typeKeys(&app, ":q");
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.ctrl_n, 0);
+    try std.testing.expectEqualStrings("quit!", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.ctrl_p, 0);
+    try std.testing.expectEqualStrings("quit", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    app.modal.cmd_len = 0;
+    app.modal.cmd_cursor = 0;
+    typeKeys(&app, "metronome ");
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqualStrings("metronome on", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.ctrl_n, 0);
+    try std.testing.expectEqualStrings("metronome off", app.modal.cmd_buf[0..app.modal.cmd_len]);
+    app.handleKey(.ctrl_p, 0);
+    try std.testing.expectEqualStrings("metronome on", app.modal.cmd_buf[0..app.modal.cmd_len]);
+
+    app.pushCommandHistory("bpm 120");
+    app.handleKey(.history_prev, 0);
+    try std.testing.expectEqualStrings("bpm 120", app.modal.cmd_buf[0..app.modal.cmd_len]);
+}
+
 test "suggestion popup highlight tracks the completed candidate" {
     var app = try testApp(); // synth(0), sampler(1), drums(2)
     defer app.deinit();
@@ -11509,10 +11536,10 @@ test "random key sequences never panic in any view" {
     // non-char variants a real terminal can deliver.
     const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 :/?.,<>[]{}-+=!*#$%\"'";
     const specials = [_]modal_mod.Key{
-        .escape,   .enter,      .enter_release, .backspace,   .delete,    .tab,        .backtab,
-        .arrow_up, .arrow_down, .arrow_left,    .arrow_right, .word_left, .word_right, .home,
-        .end,      .ctrl_w,     .ctrl_a,        .ctrl_e,      .ctrl_u,    .ctrl_k,     .ctrl_p,
-        .ctrl_n,   .ctrl_r,
+        .escape,   .enter,        .enter_release, .backspace,   .delete,    .tab,        .backtab,
+        .arrow_up, .arrow_down,   .arrow_left,    .arrow_right, .word_left, .word_right, .home,
+        .end,      .ctrl_w,       .ctrl_a,        .ctrl_e,      .ctrl_u,    .ctrl_k,     .ctrl_p,
+        .ctrl_n,   .history_prev, .history_next,  .ctrl_r,
     };
 
     var prng = std.Random.DefaultPrng.init(0x5eed);
