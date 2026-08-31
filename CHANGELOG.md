@@ -17,6 +17,8 @@ history lives in [FORMAT.md](FORMAT.md).
   selected melodic track during the last 30 seconds. Stopped performances keep
   their relative timing, rolling performances keep their tempo-map position,
   and the complete recovery is one undoable edit.
+- Audio clips and audio editors show active take number and total, making
+  `:take next|prev` audition changes visible.
 - CC0 acoustic instruments from VCSL, FreePats and VSCO 2 CE through a shared
   SFZ sample-bank loader, as their own `Acoustic` instrument in the picker:
   pianos, harpsichord, pipe organ, concert harp, mallets, kalimba, harmonica,

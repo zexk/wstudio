@@ -187,6 +187,14 @@ pub const Clip = struct {
             for (self.alternate_takes) |take| count += @intFromBool(take != null);
             return count;
         }
+
+        pub fn takeNumber(self: AudioRegion) usize {
+            var number: usize = 1;
+            for (self.alternate_takes) |take| {
+                if (take != null and take.?.source_id < self.source_id) number += 1;
+            }
+            return number;
+        }
     };
 
     /// A private copy of a piano-roll pattern.
@@ -697,10 +705,13 @@ test "audio takes cycle through every alternate" {
     try std.testing.expect(clip.addAudioTake(.{ .source_id = 2, .source_start_frame = 0, .source_length_frames = 20, .length_ticks = 64 }));
     try std.testing.expect(clip.addAudioTake(.{ .source_id = 3, .source_start_frame = 0, .source_length_frames = 30, .length_ticks = 96 }));
     try std.testing.expectEqual(@as(usize, 3), clip.content.audio.takeCount());
+    try std.testing.expectEqual(@as(usize, 3), clip.content.audio.takeNumber());
     try std.testing.expect(clip.cycleAudioTake(1));
     try std.testing.expectEqual(@as(u32, 1), clip.content.audio.source_id);
+    try std.testing.expectEqual(@as(usize, 1), clip.content.audio.takeNumber());
     try std.testing.expect(clip.cycleAudioTake(1));
     try std.testing.expectEqual(@as(u32, 2), clip.content.audio.source_id);
+    try std.testing.expectEqual(@as(usize, 2), clip.content.audio.takeNumber());
     try std.testing.expect(clip.cycleAudioTake(-1));
     try std.testing.expectEqual(@as(u32, 1), clip.content.audio.source_id);
 }

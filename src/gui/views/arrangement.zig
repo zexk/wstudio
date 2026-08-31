@@ -404,7 +404,7 @@ pub fn draw(app: anytype) void {
                     }
                 },
                 .audio => |region| {
-                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "AUDIO  {d}f  {d:.1}dB  {d}T", .{ region.source_length_frames, region.gain_db, region.takeCount() });
+                    draw_list.addText(.{ pmin[0] + 7, pmin[1] + 4 }, color(ink), "AUDIO  {d}f  {d:.1}dB  T{d}/{d}", .{ region.source_length_frames, region.gain_db, region.takeNumber(), region.takeCount() });
                     const mid = (pmin[1] + 22 + pmax[1]) * 0.5;
                     drawClipWaveform(proj, draw_list, region, pmin[0], pmax[0], mid, (pmax[1] - pmin[1] - 22) * 0.5, ink);
                     // Fade ramps (`:clip-fade`, and the pair `:crossfade` writes)

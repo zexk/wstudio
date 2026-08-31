@@ -83,17 +83,18 @@ Audio pre-record remains separate. It needs a bounded sample buffer, latency
 alignment, ownership, and save behavior rather than reusing the lightweight
 MIDI path.
 
-### 2. Take audition and comp editing
+### Closed: take audition and active identity
 
 wstudio stores alternate audio takes and can select or bake a comp. Mature DAWs
 add visible lanes, fast solo audition, range-based promotion to the main take,
 take naming, and loop-recorded pass management. Live, Logic, Cubase, Pro Tools,
 Bitwig, and REAPER all expose some form of this workflow.
 
-Recommended scope: improve existing take stack before inventing a parallel
-lane model. Add previous/next audition and visible active-take identity first.
-Only add range-based comp edits if real vocal or instrument sessions show whole
-take selection is the blocker. Full freeform lanes can wait.
+The existing `:take next|prev` commands provide undoable audition. Audio clips
+and both audio editors show the active take number and total. Only add further
+range-based comp edits if real vocal or instrument sessions show existing
+whole-take selection and `:comp` range promotion are blockers. Full freeform
+lanes can wait.
 
 Priority: high for recording users. Cost: medium for audition and identity,
 large for editable lanes. Proof: record several loop passes, compare them
