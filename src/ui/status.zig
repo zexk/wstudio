@@ -604,7 +604,7 @@ pub fn drawArrangementStatus(app: anytype, w: *std.Io.Writer, right: *std.Io.Wri
                     dim, rst, ws.dsp.DrumMachine.variantLetter(d.variant),
                 }),
                 .melodic => {},
-                .audio => try w.writeAll(" audio"),
+                .audio => |audio| try w.print(" audio T{d}/{d}", .{ audio.takeNumber(), audio.takeCount() }),
             }
         }
     }

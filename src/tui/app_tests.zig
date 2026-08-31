@@ -3714,6 +3714,29 @@ test "arrangement status lines report bars, not grid cells or ticks" {
     try std.testing.expect(std.mem.indexOf(u8, app.status_buf[0..app.status_len], "bar 3") != null);
 }
 
+test "arrangement status identifies active audio take" {
+    var app = try arrangementApp();
+    defer app.deinit();
+    const first = try app.session.project.addAudioSource("first", app.session.project.sample_rate, 1, &.{0.1});
+    const second = try app.session.project.addAudioSource("second", app.session.project.sample_rate, 1, &.{0.2});
+    try app.session.arrangement.lane(0).?.place(app.allocator, ws.Clip.initAudio(0, 32, .{
+        .source_id = first,
+        .source_start_frame = 0,
+        .source_length_frames = 1,
+    }));
+    try std.testing.expect(app.session.arrangement.lane(0).?.clips.items[0].addAudioTake(.{
+        .source_id = second,
+        .source_start_frame = 0,
+        .source_length_frames = 1,
+        .length_ticks = 32,
+    }));
+
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "audio T2/2") != null);
+}
+
 test "bar readouts follow the meter map, not one fixed bar length" {
     var app = try testApp();
     defer app.deinit();

@@ -17,8 +17,9 @@ history lives in [FORMAT.md](FORMAT.md).
   selected melodic track during the last 30 seconds. Stopped performances keep
   their relative timing, rolling performances keep their tempo-map position,
   and the complete recovery is one undoable edit.
-- Audio clips and audio editors show active take number and total. In the audio
-  editor, `[` and `]` or GUI buttons audition previous and next takes directly;
+- Audio clips, arrangement status, and audio editors show active take number
+  and total. In the audio editor, `[` and `]` or GUI buttons audition previous
+  and next takes directly;
   `:comp` works there too, take numbers stay stable after auditioning, and
   context help covers the complete editor workflow. Loop recording retains the
   latest eight passes when more takes exceed the region cap and reports that
