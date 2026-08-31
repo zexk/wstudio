@@ -333,7 +333,8 @@ pub const Clip = struct {
             self.length_ticks = take.length_ticks;
             return true;
         }
-        audio.alternate_takes[0] = .{ .source_id = audio.source_id, .source_start_frame = audio.source_start_frame, .source_length_frames = audio.source_length_frames, .length_ticks = self.length_ticks };
+        for (0..audio.alternate_takes.len - 1) |i| audio.alternate_takes[i] = audio.alternate_takes[i + 1];
+        audio.alternate_takes[audio.alternate_takes.len - 1] = .{ .source_id = audio.source_id, .source_start_frame = audio.source_start_frame, .source_length_frames = audio.source_length_frames, .length_ticks = self.length_ticks };
         audio.source_id = take.source_id;
         audio.source_start_frame = take.source_start_frame;
         audio.source_length_frames = take.source_length_frames;
@@ -728,6 +729,24 @@ test "audio takes cycle through every alternate" {
     try std.testing.expectEqual(@as(usize, 2), clip.content.audio.takeNumber());
     try std.testing.expect(clip.cycleAudioTake(-1));
     try std.testing.expectEqual(@as(u32, 1), clip.content.audio.source_id);
+}
+
+test "audio take cap retains latest recordings" {
+    var clip = Clip.initAudio(0, 32, .{ .source_id = 1, .source_start_frame = 0, .source_length_frames = 10 });
+    for (2..11) |source_id| {
+        try std.testing.expect(clip.addAudioTake(.{
+            .source_id = @intCast(source_id),
+            .source_start_frame = 0,
+            .source_length_frames = 10,
+            .length_ticks = 32,
+        }));
+    }
+    try std.testing.expectEqual(@as(usize, max_audio_takes), clip.content.audio.takeCount());
+    try std.testing.expectEqual(@as(u32, 10), clip.content.audio.source_id);
+    for (3..11) |source_id| {
+        try std.testing.expect(clip.cycleAudioTake(1));
+        try std.testing.expectEqual(@as(u32, @intCast(source_id)), clip.content.audio.source_id);
+    }
 }
 
 test "place inserts sorted and reports lane length" {
