@@ -1419,7 +1419,10 @@ pub const App = struct {
         }
         const take_count = switch (lane.clips.items[clip_index].content) {
             .audio => |audio| audio.takeCount(),
-            else => 0,
+            else => {
+                self.setStatus("take: clip is not audio", .{});
+                return;
+            },
         };
         if (take_count <= 1) {
             self.setStatus("take: clip has no alternate takes", .{});

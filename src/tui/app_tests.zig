@@ -3984,6 +3984,18 @@ test "clip commands name the missing track instead of failing silently" {
     }
 }
 
+test "take command rejects a non-audio clip precisely" {
+    var app = try testApp();
+    defer app.deinit();
+    try stampArrangementTestClip(&app);
+    app.view = .arrangement;
+    app.cursor = 0;
+    app.arr_cursor_bar = 0;
+
+    commands.run(&app, "take next");
+    try std.testing.expectEqualStrings("take: clip is not audio", app.status_buf[0..app.status_len]);
+}
+
 test "an over-long status message truncates instead of drawing the buffer's tail" {
     var app = try testApp();
     defer app.deinit();
