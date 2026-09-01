@@ -600,7 +600,7 @@ fn drawAutomationPreview(app: anytype, draw_list: anytype, clip: *const ws.Clip,
 /// This is what drum programming by hand is built on: place one kick, then
 /// strew it across the bar without going back to the browser for each hit.
 fn finishClipCopy(app: anytype, drag: ClipDrag) void {
-    if (!clipSelectionValid(&app.core.session.arrangement, drag.selection)) return;
+    if (!clipSelectionValid(&app.core.session, drag.selection)) return;
     if (drag.target_tick == drag.selection.start_tick) return;
     const allocator = app.core.allocator;
     const lane = &app.core.session.arrangement.lanes.items[drag.selection.track];
@@ -629,7 +629,7 @@ fn finishClipCopy(app: anytype, drag: ClipDrag) void {
 }
 
 fn finishClipDrag(app: anytype, drag: ClipDrag) void {
-    if (!clipSelectionValid(&app.core.session.arrangement, drag.selection)) return;
+    if (!clipSelectionValid(&app.core.session, drag.selection)) return;
     const grid = app.core.arr_grid.ticks();
     const from = drag.selection.start_tick / grid;
     const to = drag.target_tick / grid;
@@ -718,7 +718,7 @@ fn drawArrangementInspector(app: anytype) void {
 }
 
 fn duplicateClip(app: anytype, selection: ClipSelection) void {
-    if (!clipSelectionValid(&app.core.session.arrangement, selection)) return;
+    if (!clipSelectionValid(&app.core.session, selection)) return;
     const clip = app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip];
     finishClipCopy(app, .{
         .selection = selection,
