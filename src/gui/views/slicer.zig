@@ -54,7 +54,7 @@ fn drawEmptyState(app: anytype) void {
     if (widgets.emptyState(.{
         .id = "slicer-empty-state",
         .title = "NO AUDIO",
-        .explanation = "Choose a WAV file, then divide it into playable slices.",
+        .explanation = "Choose an audio file, then divide it into playable slices.",
         .shortcut = ":load",
         .action = "LOAD AUDIO",
         .accent = theme.audio,
