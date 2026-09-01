@@ -10443,6 +10443,21 @@ test "changing FX focus invalidates the frozen spectrum snapshot" {
     try std.testing.expect(app.eq_spectrum_frozen_snap == null);
 }
 
+test "spectrum mode toggles invalidate the frozen snapshot" {
+    var app = try testApp();
+    defer app.deinit();
+    _ = try app.session.racks.items[0].fx.insert(app.session.allocator, 0, .eq, app.session.project.sample_rate);
+    spectrum_ed.switchToTrack(&app, 0);
+
+    app.eq_spectrum_frozen_snap = .{ .bins = @splat(-12) };
+    spectrum_ed.toggleSpectrumPre(&app, .track);
+    try std.testing.expect(app.eq_spectrum_frozen_snap == null);
+
+    app.eq_spectrum_frozen_snap = .{ .bins = @splat(-12) };
+    spectrum_ed.toggleSpectrumFreeze(&app, .track);
+    try std.testing.expect(app.eq_spectrum_frozen_snap == null);
+}
+
 test "FX chain: insert/bypass/remove are each their own undoable step" {
     var app = try testApp();
     defer app.deinit();

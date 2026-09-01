@@ -935,6 +935,7 @@ pub fn toggleAnalog(app: *App, target: EqTarget) void {
 pub fn toggleSpectrumPre(app: *App, target: EqTarget) void {
     if (focusedEq(app, target) == null) return;
     app.eq_spectrum_pre = !app.eq_spectrum_pre;
+    app.eq_spectrum_frozen_snap = null;
     _ = app.session.engine.send(.{ .set_spectrum_pre = app.eq_spectrum_pre });
     app.setStatus("spectrum: {s}", .{if (app.eq_spectrum_pre) "pre-EQ" else "post-EQ"});
 }
@@ -945,6 +946,7 @@ pub fn toggleSpectrumPre(app: *App, target: EqTarget) void {
 pub fn toggleSpectrumFreeze(app: *App, target: EqTarget) void {
     if (focusedEq(app, target) == null) return;
     app.eq_spectrum_frozen = !app.eq_spectrum_frozen;
+    app.eq_spectrum_frozen_snap = null;
     app.setStatus("spectrum: {s}", .{if (app.eq_spectrum_frozen) "frozen" else "live"});
 }
 
