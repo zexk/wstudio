@@ -5540,6 +5540,10 @@ test "session swap resets view, editor targets, and undo history" {
     app.automation_op_pending = 'd';
     app.pending_prefix = 'g';
     app.pending_prefix_count = 2;
+    app.keymap_pending_len = 1;
+    app.keymap_pending_buf[0] = .{ .char = 'g' };
+    app.macro_pending = .play;
+    app.macro_pending_count = 4;
     app.tracks_del_pending = true;
     app.tracks_visual_anchor = 1;
     app.browser_visual_anchor = 2;
@@ -5627,6 +5631,9 @@ test "session swap resets view, editor targets, and undo history" {
     try std.testing.expect(app.automation_op_pending == null);
     try std.testing.expect(app.pending_prefix == null);
     try std.testing.expectEqual(@as(u32, 0), app.pending_prefix_count);
+    try std.testing.expectEqual(@as(usize, 0), app.keymap_pending_len);
+    try std.testing.expectEqual(app_mod.MacroPending.none, app.macro_pending);
+    try std.testing.expectEqual(@as(u32, 1), app.macro_pending_count);
     try std.testing.expect(!app.tracks_del_pending);
     try std.testing.expect(app.tracks_visual_anchor == null);
     try std.testing.expect(app.browser_visual_anchor == null);
