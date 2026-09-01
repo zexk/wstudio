@@ -4938,6 +4938,8 @@ pub const App = struct {
         self.reference_saved_solo = @splat(false);
         self.reference_saved_group_solo = @splat(false);
         self.dirty = false;
+        self.tap_count = 0;
+        self.last_playing = false;
         if (self.modal.mode != .normal) _ = self.modal.setMode(.normal);
         self.view = .tracks;
         self.prev_view = .tracks;
