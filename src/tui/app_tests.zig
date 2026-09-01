@@ -5474,6 +5474,8 @@ test "session swap resets view, editor targets, and undo history" {
     app.reference_active = true;
     app.cc_learn = .{ .track = 2, .param_id = 1, .center = 0, .lo = 0, .hi = 1 };
     app.cc_learn_seq = 7;
+    app.eq_spectrum_frozen = true;
+    app.eq_spectrum_frozen_snap = .{ .bins = @splat(-12) };
     app.reference_saved_solo[0] = true;
     app.reference_saved_group_solo[0] = true;
     app.alt_context = .{
@@ -5576,6 +5578,8 @@ test "session swap resets view, editor targets, and undo history" {
     try std.testing.expect(app.cc_learn_seq == null);
     try std.testing.expect(app.preset_audition_original_fx == null);
     try std.testing.expect(!app.preset_audition_active);
+    try std.testing.expect(app.eq_spectrum_frozen);
+    try std.testing.expect(app.eq_spectrum_frozen_snap == null);
     try std.testing.expect(!app.reference_saved_solo[0]);
     try std.testing.expect(!app.reference_saved_group_solo[0]);
     try std.testing.expect(!app.dirty);
