@@ -44,7 +44,7 @@ pub fn ensureEqAnalyzer(app: anytype, target: spectrum_ed.EqTarget, unit: ?*ws.F
         .master => 0x20000,
         .group => 0x30000 | @as(u32, app.core.eq_group),
     };
-    if (app.eq_analyzer_key == key) return;
+    if (app.eq_analyzer_key) |active| if (active.source == key and active.unit == unit) return;
     _ = app.core.session.engine.send(.{
         .set_spectrum_active = .{
             .source = switch (target) {
@@ -60,7 +60,7 @@ pub fn ensureEqAnalyzer(app: anytype, target: spectrum_ed.EqTarget, unit: ?*ws.F
             .target = unit,
         },
     });
-    app.eq_analyzer_key = key;
+    app.eq_analyzer_key = .{ .source = key, .unit = unit };
 }
 
 fn drawEqGraph(app: anytype, target: spectrum_ed.EqTarget, unit: *ws.FxUnit, selected_band: usize) void {

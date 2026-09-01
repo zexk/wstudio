@@ -36,7 +36,7 @@ pub const App = struct {
     arrangement_drag: ?arrangement_view.ClipDrag = null,
     piano_mouse_edit: ?piano_view.MouseEdit = null,
     eq_drag_band: ?u8 = null,
-    eq_analyzer_key: ?u32 = null,
+    eq_analyzer_key: ?struct { source: u32, unit: ?*ws.FxUnit } = null,
     waveform_drag: ?sampler_view.RegionHandle = null,
     waveform_slice_glow: [ws.dsp.Slicer.max_slices]f32 = @splat(0),
     waveform_glow_last_ns: i128 = 0,
@@ -484,6 +484,26 @@ test "GUI plugin scan reports real phase progress" {
     const progress = app.pluginScanProgress().?;
     try std.testing.expectEqual(@as(f32, 0.5), progress.fraction);
     try std.testing.expectEqualStrings("VST3", progress.label);
+}
+
+test "GUI analyzer cache distinguishes FX units on one chain" {
+    var app: App = .{ .core = try app_mod.App.init(std.testing.allocator, std.Io.failing) };
+    defer app.deinit();
+    const fx = &app.core.session.racks.items[0].fx;
+    const first = try fx.insert(app.core.session.allocator, 0, .filter, app.core.session.project.sample_rate);
+    const second = try fx.insert(app.core.session.allocator, 1, .filter, app.core.session.project.sample_rate);
+    app.core.view = .track_spectrum;
+
+    const fx_eq = @import("views/fx_eq.zig");
+    fx_eq.ensureEqAnalyzer(&app, .track, first);
+    var block: [64]ws.types.Sample = undefined;
+    app.core.session.engine.process(&block);
+    try std.testing.expectEqual(@as(?*anyopaque, first), app.core.session.engine.active_spectrum_target);
+
+    @import("../ui/editors/fx_editor.zig").setFocus(&app.core, .track, 1);
+    fx_eq.ensureEqAnalyzer(&app, .track, second);
+    app.core.session.engine.process(&block);
+    try std.testing.expectEqual(@as(?*anyopaque, second), app.core.session.engine.active_spectrum_target);
 }
 
 // Zig only analyzes tests in files the test root references explicitly, so a
