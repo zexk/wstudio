@@ -13,7 +13,7 @@
         "aarch64-darwin"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
-      version = "1.0.0-beta.10";
+      version = "1.0.0-beta.11";
       # fetchDeps converts build.zig.zon's source dependencies into Zig's
       # package cache. One hash keeps native, macOS, and Windows builds synced.
       zigDepsHash = "sha256-0GeMYLsWO89SK6f7rw0HxIqkahbSt/8/SeEkI5WVFus=";

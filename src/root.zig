@@ -3,7 +3,7 @@ pub const ring_buffer = @import("core/ring_buffer.zig");
 pub const wav = @import("core/wav.zig");
 pub const theme_identity = @import("theme_identity.zig");
 pub const project_load_error = @import("project_load_error.zig");
-pub const version = "1.0.0-beta.10";
+pub const version = "1.0.0-beta.11";
 
 pub const Transport = @import("transport.zig").Transport;
 pub const TimeSignature = @import("transport.zig").TimeSignature;

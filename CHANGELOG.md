@@ -3,6 +3,13 @@
 Notable user-visible changes per release. The `.wsj` format's own version
 history lives in [FORMAT.md](FORMAT.md).
 
+## v1.0.0-beta.11
+
+### Changed
+
+- Flagless launches now open the graphical frontend by default. The terminal
+  frontend remains available with `--tui` or `wstudio.o.preferred_frontend`.
+
 ## v1.0.0-beta.10
 
 ### Added
