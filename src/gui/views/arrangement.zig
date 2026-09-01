@@ -17,7 +17,7 @@ const commands = @import("../../ui/commands.zig");
 const color = gui_style.color;
 const theme = &gui_style.palette;
 
-pub const ClipSelection = struct { track: usize, clip: usize, start_tick: u32 };
+pub const ClipSelection = struct { track: usize, clip: usize, start_tick: u32, rack: *ws.Rack };
 /// `copy` is decided when the drag starts, not when it ends: holding the
 /// modifier is what turns a move into a duplicate, and releasing it midway
 /// through a drag should not silently change what the gesture does.
@@ -27,11 +27,13 @@ pub const ClipDrag = struct { selection: ClipSelection, target_tick: u32, grab_o
 /// layout reserves inspector height, which happens a frame before the
 /// inspector itself draws.
 fn selectedClipIsAudio(app: anytype, selection: ClipSelection) bool {
-    if (!clipSelectionValid(&app.core.session.arrangement, selection)) return false;
+    if (!clipSelectionValid(&app.core.session, selection)) return false;
     return app.core.session.arrangement.lanes.items[selection.track].clips.items[selection.clip].content == .audio;
 }
 
-fn clipSelectionValid(arrangement: *const ws.Arrangement, selection: ClipSelection) bool {
+fn clipSelectionValid(session: *const ws.Session, selection: ClipSelection) bool {
+    if (selection.track >= session.racks.items.len or session.racks.items[selection.track] != selection.rack) return false;
+    const arrangement = &session.arrangement;
     if (selection.track >= arrangement.lanes.items.len) return false;
     const clips = arrangement.lanes.items[selection.track].clips.items;
     return selection.clip < clips.len and clips[selection.clip].start_tick == selection.start_tick;
@@ -93,7 +95,7 @@ fn drawClipWaveform(
 
 pub fn draw(app: anytype) void {
     if (app.arrangement_clip) |selection| {
-        if (!clipSelectionValid(&app.core.session.arrangement, selection)) app.arrangement_clip = null;
+        if (!clipSelectionValid(&app.core.session, selection)) app.arrangement_clip = null;
     }
     const track_count = app.core.session.project.tracks.items.len;
     const ticks_per_beat = ws.time_grid.ticks_per_beat;
@@ -498,7 +500,7 @@ pub fn draw(app: anytype) void {
             // clip in list order is the BOTTOM of a stack (see clipIndexAt).
             if (app.core.session.arrangement.lanes.items[ti].clipIndexAt(tick)) |ci| {
                 const clip = app.core.session.arrangement.lanes.items[ti].clips.items[ci];
-                app.arrangement_clip = .{ .track = ti, .clip = ci, .start_tick = clip.start_tick };
+                app.arrangement_clip = .{ .track = ti, .clip = ci, .start_tick = clip.start_tick, .rack = app.core.session.racks.items[ti] };
                 app.arrangement_drag = .{
                     .selection = app.arrangement_clip.?,
                     .target_tick = clip.start_tick,
@@ -517,7 +519,7 @@ pub fn draw(app: anytype) void {
                 const clip = app.core.session.arrangement.lanes.items[ti].clips.items[ci];
                 app.core.cursor = ti;
                 app.core.arr_cursor_bar = tick / app.core.arr_grid.ticks();
-                app.arrangement_clip = .{ .track = ti, .clip = ci, .start_tick = clip.start_tick };
+                app.arrangement_clip = .{ .track = ti, .clip = ci, .start_tick = clip.start_tick, .rack = app.core.session.racks.items[ti] };
                 zgui.openPopup("clip-context", .{});
             }
         }
@@ -621,7 +623,7 @@ fn finishClipCopy(app: anytype, drag: ClipDrag) void {
     app.core.arr_cursor_bar = copy.start_tick / app.core.arr_grid.ticks();
     for (lane.clips.items, 0..) |clip, index| {
         if (clip.start_tick != copy.start_tick) continue;
-        app.arrangement_clip = .{ .track = drag.selection.track, .clip = index, .start_tick = clip.start_tick };
+        app.arrangement_clip = .{ .track = drag.selection.track, .clip = index, .start_tick = clip.start_tick, .rack = drag.selection.rack };
         return;
     }
 }
@@ -639,24 +641,29 @@ fn finishClipDrag(app: anytype, drag: ClipDrag) void {
     const lane = app.core.session.arrangement.lanes.items[drag.selection.track];
     for (lane.clips.items, 0..) |clip, index| {
         if (clip.start_tick != drag.target_tick) continue;
-        app.arrangement_clip = .{ .track = drag.selection.track, .clip = index, .start_tick = clip.start_tick };
+        app.arrangement_clip = .{ .track = drag.selection.track, .clip = index, .start_tick = clip.start_tick, .rack = drag.selection.rack };
         return;
     }
 }
 
-test "clip selection rejects deleted or displaced clips" {
-    var arrangement: ws.Arrangement = .{};
-    defer arrangement.deinit(std.testing.allocator);
-    try arrangement.addLane(std.testing.allocator);
-    try arrangement.lanes.items[0].place(std.testing.allocator, try ws.Clip.initMelodic(std.testing.allocator, 16, 16, &.{}, 1.0));
+test "clip selection rejects a replacement track at the same coordinates" {
+    var session = try ws.Session.initDefault(std.testing.allocator);
+    defer session.deinit();
+    try session.arrangement.lanes.items[0].place(std.testing.allocator, try ws.Clip.initMelodic(std.testing.allocator, 16, 16, &.{}, 1.0));
+    const selection: ClipSelection = .{ .track = 0, .clip = 0, .start_tick = 16, .rack = session.racks.items[0] };
+    try std.testing.expect(clipSelectionValid(&session, selection));
+    try std.testing.expect(session.arrangement.lanes.items[0].removeAt(std.testing.allocator, 16));
+    try std.testing.expect(!clipSelectionValid(&session, selection));
+    try session.arrangement.lanes.items[0].place(std.testing.allocator, try ws.Clip.initMelodic(std.testing.allocator, 32, 16, &.{}, 1.0));
+    try std.testing.expect(!clipSelectionValid(&session, selection));
+    try std.testing.expect(session.arrangement.lanes.items[0].removeAt(std.testing.allocator, 32));
+    try session.arrangement.lanes.items[0].place(std.testing.allocator, try ws.Clip.initMelodic(std.testing.allocator, 16, 16, &.{}, 1.0));
 
-    const selection: ClipSelection = .{ .track = 0, .clip = 0, .start_tick = 16 };
-    try std.testing.expect(clipSelectionValid(&arrangement, selection));
-    try std.testing.expect(arrangement.lanes.items[0].removeAt(std.testing.allocator, 16));
-    try std.testing.expect(!clipSelectionValid(&arrangement, selection));
+    _ = try session.addTrack("replacement");
+    try session.arrangement.lanes.items[1].place(std.testing.allocator, try ws.Clip.initMelodic(std.testing.allocator, 16, 16, &.{}, 1.0));
+    try session.deleteTrack(0);
 
-    try arrangement.lanes.items[0].place(std.testing.allocator, try ws.Clip.initMelodic(std.testing.allocator, 32, 16, &.{}, 1.0));
-    try std.testing.expect(!clipSelectionValid(&arrangement, selection));
+    try std.testing.expect(!clipSelectionValid(&session, selection));
 }
 
 fn drawArrangementInspector(app: anytype) void {
@@ -829,7 +836,7 @@ fn applyInspectorAction(app: anytype, selection: ClipSelection, key: u8) void {
     const cursor_tick = app.core.arr_cursor_bar *| app.core.arr_grid.ticks();
     const lane = &app.core.session.arrangement.lanes.items[selection.track];
     if (lane.clipIndexAt(cursor_tick)) |index| {
-        app.arrangement_clip = .{ .track = selection.track, .clip = index, .start_tick = lane.clips.items[index].start_tick };
+        app.arrangement_clip = .{ .track = selection.track, .clip = index, .start_tick = lane.clips.items[index].start_tick, .rack = selection.rack };
         return;
     }
     app.arrangement_clip = null;

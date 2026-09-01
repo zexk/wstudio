@@ -530,7 +530,7 @@ test "GUI analyzer cache distinguishes FX units on one chain" {
 test "GUI session reset clears old selections and gestures" {
     var app: App = .{ .core = try app_mod.App.init(std.testing.allocator, std.Io.failing) };
     defer app.deinit();
-    app.arrangement_clip = .{ .track = 0, .clip = 0, .start_tick = 0 };
+    app.arrangement_clip = .{ .track = 0, .clip = 0, .start_tick = 0, .rack = app.core.session.racks.items[0] };
     app.arrangement_drag = .{ .selection = app.arrangement_clip.?, .target_tick = 4, .grab_offset_tick = 1 };
     app.piano_mouse_edit = .{ .kind = .move, .source_pitch = 60, .source_step = 0, .target_pitch = 61, .target_step = 1, .duration_steps = 1 };
     app.eq_drag_band = 1;
