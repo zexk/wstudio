@@ -1031,6 +1031,26 @@ test ":reference toggles a loudness-matched track against saved solo state" {
     try std.testing.expect(!app.session.project.tracks.items[1].soloed);
 }
 
+test "reference mix survives track deletion without retargeting saved solos" {
+    var app = try testApp();
+    defer app.deinit();
+    app.apiSetTrackSoloed(0, true);
+    commands.run(&app, "reference 3");
+
+    app.doTrackDel(1);
+    try std.testing.expect(app.reference_active);
+    try std.testing.expectEqual(@as(u16, 1), app.reference_track.?);
+    commands.run(&app, "reference");
+    try std.testing.expect(app.session.project.tracks.items[0].soloed);
+    try std.testing.expect(!app.session.project.tracks.items[1].soloed);
+
+    commands.run(&app, "reference 2");
+    app.doTrackDel(1);
+    try std.testing.expect(!app.reference_active);
+    try std.testing.expect(app.reference_track == null);
+    try std.testing.expect(app.session.project.tracks.items[0].soloed);
+}
+
 test "notes route to a synth track and queue their own release" {
     var app = try testApp();
     defer app.deinit();

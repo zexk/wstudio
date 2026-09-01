@@ -4538,13 +4538,25 @@ pub const App = struct {
             if (op.apply(link.track)) |t| self.automation_clip.?.track = t
             else self.automation_clip = null;
         }
-        // The A/B reference names a track too. Its saved solo states are a
-        // flat array indexed by track slot, so a shift makes every one of
-        // them name a different track than it was captured from - the
-        // session is abandoned rather than restored from stale values.
+        // The A/B reference and its saved mix both follow structural edits.
+        // The saved solos are positional, so remap the snapshot too or
+        // leaving reference mode restores each flag onto the wrong track.
+        if (self.reference_active) {
+            var saved: [engine_mod.max_tracks]bool = @splat(false);
+            for (self.reference_saved_solo, 0..) |soloed, track| {
+                const mapped = op.apply(@intCast(track)) orelse continue;
+                if (mapped < saved.len) saved[mapped] = soloed;
+            }
+            self.reference_saved_solo = saved;
+        }
         if (self.reference_track) |t| {
             self.reference_track = op.apply(t);
-            if (self.reference_track == null) self.reference_active = false;
+            if (self.reference_track == null and self.reference_active) {
+                for (self.session.project.tracks.items, 0..) |_, track| self.apiSetTrackSoloed(track, self.reference_saved_solo[track]);
+                for (&self.session.groups, 0..) |group, i| if (group != null)
+                    self.session.setGroupSoloed(@intCast(i), self.reference_saved_group_solo[i]);
+                self.reference_active = false;
+            }
         }
         switch (self.resample_source) {
             .track => |track| {
