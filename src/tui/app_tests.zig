@@ -5461,6 +5461,25 @@ test "session swap resets view, editor targets, and undo history" {
     // session's content, a pending note-off, a clip link.
     app.view = .drum_grid;
     app.drum_track = 2;
+    app.soundfont_track = 2;
+    app.audio_track = 2;
+    app.audio_clip = 9;
+    app.reference_track = 2;
+    app.reference_active = true;
+    app.reference_saved_solo[0] = true;
+    app.reference_saved_group_solo[0] = true;
+    app.alt_context = .{
+        .view = .audio_editor,
+        .cursor = 2,
+        .piano_track = 2,
+        .drum_track = 2,
+        .slicer_track = 2,
+        .synth_track = 2,
+        .soundfont_track = 2,
+        .automation_track = 2,
+        .audio_track = 2,
+        .sampler_target = .{ .sampler = 2 },
+    };
     history.push(&app, history.captureDrum(&app, 2));
     app.playNote(2, 60, 0);
     app.piano_clip_link = .{ .track = 2, .start_tick = 0 };
@@ -5478,8 +5497,16 @@ test "session swap resets view, editor targets, and undo history" {
     try std.testing.expectEqual(@as(usize, 0), app.history.undo_stack.items.len);
     try std.testing.expectEqual(@as(usize, 0), app.note_off_len);
     try std.testing.expectEqual(@as(u16, 0), app.drum_track);
+    try std.testing.expectEqual(@as(u16, 0), app.soundfont_track);
+    try std.testing.expectEqual(@as(u16, 0), app.audio_track);
+    try std.testing.expectEqual(@as(usize, 0), app.audio_clip);
     try std.testing.expectEqual(@as(usize, 0), app.cursor);
     try std.testing.expect(app.piano_clip_link == null);
+    try std.testing.expect(app.alt_context == null);
+    try std.testing.expect(app.reference_track == null);
+    try std.testing.expect(!app.reference_active);
+    try std.testing.expect(!app.reference_saved_solo[0]);
+    try std.testing.expect(!app.reference_saved_group_solo[0]);
     try std.testing.expect(app.projectPath() == null);
     try std.testing.expectEqualStrings("new project", app.status_buf[0..app.status_len]);
 }

@@ -4929,6 +4929,11 @@ pub const App = struct {
         self.retrospective_midi_len = 0;
         self.piano_clip_link = null;
         self.automation_clip = null;
+        self.alt_context = null;
+        self.reference_track = null;
+        self.reference_active = false;
+        self.reference_saved_solo = @splat(false);
+        self.reference_saved_group_solo = @splat(false);
         if (self.modal.mode != .normal) _ = self.modal.setMode(.normal);
         self.view = .tracks;
         self.prev_view = .tracks;
@@ -4938,7 +4943,11 @@ pub const App = struct {
         self.drum_track = 0;
         self.piano_track = 0;
         self.eq_track = 0;
+        self.eq_group = 0;
         self.slicer_track = 0;
+        self.soundfont_track = 0;
+        self.audio_track = 0;
+        self.audio_clip = 0;
         self.automation_track = 0;
         self.preset_picker_track = 0;
         self.sampler_target = .{ .drum = 0 };
