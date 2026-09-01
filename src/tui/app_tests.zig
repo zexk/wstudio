@@ -5488,6 +5488,9 @@ test "session swap resets view, editor targets, and undo history" {
         .audio_track = 2,
         .sampler_target = .{ .sampler = 2 },
     };
+    preset_ed.open(&app, .synth, 0);
+    app.preset_audition_active = true;
+    try std.testing.expect(app.preset_audition_original_fx != null);
     try stampArrangementTestClip(&app);
     app.view = .arrangement;
     app.cursor = 0;
@@ -5526,6 +5529,8 @@ test "session swap resets view, editor targets, and undo history" {
     try std.testing.expect(!app.reference_active);
     try std.testing.expect(app.cc_learn == null);
     try std.testing.expect(app.cc_learn_seq == null);
+    try std.testing.expect(app.preset_audition_original_fx == null);
+    try std.testing.expect(!app.preset_audition_active);
     try std.testing.expect(!app.reference_saved_solo[0]);
     try std.testing.expect(!app.reference_saved_group_solo[0]);
     try std.testing.expect(!app.dirty);

@@ -4933,6 +4933,9 @@ pub const App = struct {
         self.pending_param_nudge = null;
         if (self.pending_fx_nudge) |*p| p.deinit(self.allocator);
         self.pending_fx_nudge = null;
+        if (self.preset_audition_original_fx) |*fx| fx.deinit(self.allocator);
+        self.preset_audition_original_fx = null;
+        self.preset_audition_active = false;
         self.note_off_len = 0;
         self.retrospective_midi_len = 0;
         self.cc_learn = null;
