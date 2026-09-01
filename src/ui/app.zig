@@ -4473,6 +4473,7 @@ pub const App = struct {
         remapField(&self.automation_track, op);
         remapField(&self.preset_picker_track, op);
         remapField(&self.soundfont_track, op);
+        remapField(&self.audio_track, op);
         switch (self.sampler_target) {
             .drum    => |*t| remapField(t, op),
             .sampler => |*t| remapField(t, op),

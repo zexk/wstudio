@@ -4950,6 +4950,7 @@ test "structural track changes remap every editor-target field" {
 
     app.synth_track = 0;
     app.drum_track = 2;
+    app.audio_track = 1;
     app.sampler_target = .{ .sampler = 1 };
     app.piano_clip_link = .{ .track = 2, .start_tick = 0 };
     app.reference_track = 2;
@@ -4960,6 +4961,7 @@ test "structural track changes remap every editor-target field" {
     try std.testing.expectEqual(@as(u16, 3), app.reference_track.?);
     try std.testing.expectEqual(@as(u16, 0), app.synth_track);
     try std.testing.expectEqual(@as(u16, 3), app.drum_track);
+    try std.testing.expectEqual(@as(u16, 2), app.audio_track);
     try std.testing.expectEqual(@as(u16, 2), app.sampler_target.sampler);
     try std.testing.expectEqual(@as(u16, 3), app.piano_clip_link.?.track);
 
@@ -4967,6 +4969,7 @@ test "structural track changes remap every editor-target field" {
     app.remapTrackFields(.{ .swap = .{ .a = 0, .b = 3 } });
     try std.testing.expectEqual(@as(u16, 3), app.synth_track);
     try std.testing.expectEqual(@as(u16, 0), app.drum_track);
+    try std.testing.expectEqual(@as(u16, 2), app.audio_track);
     try std.testing.expectEqual(@as(u16, 0), app.piano_clip_link.?.track);
 
     app.note_offs[0] = .{ .at_ns = 0, .track = 0, .note = 60 };
@@ -4978,6 +4981,7 @@ test "structural track changes remap every editor-target field" {
     app.remapTrackFields(.{ .delete = 0 });
     try std.testing.expectEqual(@as(u16, 2), app.synth_track);
     try std.testing.expectEqual(@as(u16, std.math.maxInt(u16)), app.drum_track);
+    try std.testing.expectEqual(@as(u16, 1), app.audio_track);
     try std.testing.expectEqual(@as(u16, 1), app.sampler_target.sampler);
     try std.testing.expect(app.piano_clip_link == null);
     // The reference went with the track it named, and the A/B session with
