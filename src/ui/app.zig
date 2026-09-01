@@ -4479,6 +4479,21 @@ pub const App = struct {
             .sampler => |*t| remapField(t, op),
             .slice   => |*t| remapField(t, op),
         }
+        if (self.alt_context) |*alt| {
+            alt.cursor = op.apply(@intCast(alt.cursor)) orelse @min(alt.cursor, self.session.project.tracks.items.len - 1);
+            remapField(&alt.piano_track, op);
+            remapField(&alt.drum_track, op);
+            remapField(&alt.slicer_track, op);
+            remapField(&alt.synth_track, op);
+            remapField(&alt.soundfont_track, op);
+            remapField(&alt.automation_track, op);
+            remapField(&alt.audio_track, op);
+            switch (alt.sampler_target) {
+                .drum    => |*t| remapField(t, op),
+                .sampler => |*t| remapField(t, op),
+                .slice   => |*t| remapField(t, op),
+            }
+        }
         // A clip link has no sentinel to bounce to - it is dropped outright.
         if (self.piano_clip_link) |link| {
             if (op.apply(link.track)) |t| self.piano_clip_link.?.track = t

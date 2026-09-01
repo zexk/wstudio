@@ -7401,6 +7401,24 @@ test "backtick toggles between the last two workspace contexts" {
     try std.testing.expectEqual(AppView.tracks, app.view);
 }
 
+test "track delete remaps alternate audio editor context" {
+    var app = try testApp();
+    defer app.deinit();
+    _ = try app.session.addTrack("other audio");
+    try app.session.setInstrument(1, .audio);
+    try app.session.setInstrument(2, .audio);
+    try app.session.setInstrument(3, .audio);
+
+    app.openTrack(2);
+    app.handleKey(.tab, 0);
+    try std.testing.expectEqual(AppView.tracks, app.view);
+    app.doTrackDel(0);
+    app.handleKey(.{ .char = '`' }, 0);
+
+    try std.testing.expectEqual(AppView.audio_editor, app.view);
+    try std.testing.expectEqual(@as(u16, 1), app.audio_track);
+}
+
 test "macros: a self-replaying register terminates via the depth cap" {
     var app = try pianoRollApp();
     defer app.deinit();
