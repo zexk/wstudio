@@ -1,9 +1,9 @@
 # 1.0.0-beta.10 goals
 
-Beta.10 is the final release candidate. It closes remaining gaps, checks the
+Beta.10 is the next development snapshot. It closes useful gaps, checks the
 product as one coherent DAW, completes a 20-effect internal rack, and applies
-bounded release polish. Beta.10 replaces beta.9 as the code promoted to 1.0.
-It is not another open-ended feature release.
+release polish. Known hardening gaps do not block this beta. Format
+compatibility may keep evolving; compatibility hardening begins after 1.0.0.
 
 ## 1. Close gaps and prove system coherence
 
@@ -102,7 +102,7 @@ polish. Plugin sandboxing and plugin GUI windows were on this list and came off
 it: both shipped during beta.10 and are covered by the third-party plugin pass
 in [beta-10-validation.md](beta-10-validation.md).
 
-## 3. Polish, validate, and promote unchanged
+## 3. Polish and validate
 
 - Run one focused TUI and GUI polish pass over blank project, `demo.wsj`, all
   editors, pickers, prompts, errors, narrow/minimum layouts, and terminal/theme
@@ -125,7 +125,7 @@ in [beta-10-validation.md](beta-10-validation.md).
   both frontends where supported, open `demo.wsj`, render master and stems, and
   verify version, permissions, licenses, docs, config template, and assets.
 
-Beta.10 exits when:
+Beta.10 is ready when:
 
 - `zig build test`, native `zig build`, supported cross-builds, and package
   checks pass from a clean checkout.
@@ -137,9 +137,8 @@ Beta.10 exits when:
   crash, hang, wrong routing, stale ownership, or live/offline disagreement.
 - Accepted small-feature candidates pass their journey and regression checks;
   rejected candidates are explicitly postponed.
-- No open release blocker remains, and docs, version, packages, demo, and
-  release notes agree.
+- No regression blocks ordinary use, and docs, version, packages, demo, and
+  release notes agree. Established hardening gaps remain outside this beta gate.
 
-Tag beta.10 only after this gate. Promote that exact code to 1.0 apart from
-fixes for blockers found during final promotion checks. No feature batch lands
-on the stable tag.
+Tag beta.10 after this gate. Further beta work may continue immediately; 1.0.0
+gets its own compatibility and hardening gate later.

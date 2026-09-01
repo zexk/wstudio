@@ -1,4 +1,4 @@
-# Beta.10 final-candidate validation
+# Beta.10 validation
 
 Run commands from repository root in Nix development shell. Generated files
 stay under `.zig-cache/` or isolated screenshot homes.
