@@ -17,7 +17,7 @@ pub fn draw(app: anytype) void {
         if (widgets.emptyState(.{
             .id = "audio-empty-state",
             .title = "NO AUDIO REGIONS",
-            .explanation = "Import a WAV file to place it on this track.",
+            .explanation = "Import an audio file to place it on this track.",
             .shortcut = "i",
             .action = "IMPORT AUDIO",
             .accent = theme.audio,
