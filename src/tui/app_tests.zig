@@ -4168,10 +4168,11 @@ test "audio editor brackets audition alternate takes" {
         .length_ticks = 32,
     }));
     app.audio_track = 0;
-    app.audio_clip = 0;
+    app.audio_clip = std.math.maxInt(usize);
     app.view = .audio_editor;
 
     app.handleKey(.{ .char = '[' }, 0);
+    try std.testing.expectEqual(@as(usize, 0), app.audio_clip);
     try std.testing.expectEqual(first, app.session.arrangement.lane(0).?.clips.items[0].content.audio.source_id);
     try std.testing.expectEqualStrings("take: 1/2 (previous)", app.status_buf[0..app.status_len]);
     app.handleKey(.{ .char = ']' }, 1);

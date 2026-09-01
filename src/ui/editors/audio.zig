@@ -125,6 +125,7 @@ pub fn handleKey(app: *App, key: ws.input.Key) bool {
         app.session.arrangement.lanes.items[app.audio_track].clips.items
     else
         &.{};
+    if (clips.len > 0) app.audio_clip = @min(app.audio_clip, clips.len - 1);
     switch (key) {
         .escape, .tab => {
             app.view = .tracks;
