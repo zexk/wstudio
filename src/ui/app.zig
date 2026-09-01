@@ -2728,9 +2728,7 @@ pub const App = struct {
     /// master mix - same semantics as `:group-del`.
     fn doGroupDel(self: *App, g: u8) void {
         if (g >= engine_mod.max_groups or self.session.groups[g] == null) return;
-        // Must run before deleteGroup frees the slot - see cmdGroupDel's
-        // same call for why.
-        _ = history.dropGroupPending(self, g);
+        self.prepareGroupDelete(g);
         self.session.deleteGroup(g);
         self.dirty = true;
         // `cursor` sat parked on the master sentinel while the group row was
@@ -2740,6 +2738,13 @@ pub const App = struct {
         self.rebuildTrackRows();
         self.setTrackRow(self.track_row);
         self.setStatus("group {d} deleted (members back on the master mix)", .{g + 1});
+    }
+
+    pub fn prepareGroupDelete(self: *App, g: u8) void {
+        if (self.view == .group_spectrum and self.eq_group == g) self.view = .tracks;
+        _ = history.dropGroupPending(self, g);
+        if (self.resample_source == .group and self.resample_source.group == g) self.resample_source = .off;
+        if (self.reference_active) self.reference_saved_group_solo[g] = false;
     }
 
     // zig fmt: off

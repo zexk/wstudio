@@ -1051,6 +1051,20 @@ test "reference mix survives track deletion without retargeting saved solos" {
     try std.testing.expect(app.session.project.tracks.items[0].soloed);
 }
 
+test "deleted group slot does not inherit saved reference solo" {
+    var app = try testApp();
+    defer app.deinit();
+    const group = try app.session.addGroup("old bus");
+    app.session.setGroupSoloed(group, true);
+    commands.run(&app, "reference 2");
+
+    commands.run(&app, "group-del 1");
+    const replacement = try app.session.addGroup("new bus");
+    try std.testing.expectEqual(group, replacement);
+    commands.run(&app, "reference");
+    try std.testing.expect(!app.session.groups[replacement].?.soloed);
+}
+
 test "notes route to a synth track and queue their own release" {
     var app = try testApp();
     defer app.deinit();
@@ -10459,9 +10473,11 @@ test "tracks view: group row rides its bus fader, opens its chain, dd deletes th
     app.view = .tracks;
 
     // dd deletes the group; its member falls back to the master mix.
+    app.resample_source = .{ .group = g };
     app.handleKey(.{ .char = 'd' }, 0);
     app.handleKey(.{ .char = 'd' }, 0);
     try std.testing.expect(app.session.groups[g] == null);
+    try std.testing.expectEqual(ws.engine.ResampleSource.off, app.resample_source);
     try std.testing.expectEqual(@as(?u8, null), app.session.project.tracks.items[0].group);
     app.tracksRowSync();
     try std.testing.expectEqual(@as(usize, 3), app.track_rows_len); // plain track list again
