@@ -4929,6 +4929,9 @@ pub const App = struct {
         self.retrospective_midi_len = 0;
         self.piano_clip_link = null;
         self.automation_clip = null;
+        if (self.arr_range_clip) |clip| clip.deinit(self.allocator);
+        self.arr_range_clip = null;
+        self.last_edit = .none;
         self.alt_context = null;
         self.reference_track = null;
         self.reference_active = false;
