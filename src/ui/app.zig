@@ -1408,9 +1408,15 @@ pub const App = struct {
     }
 
     pub fn cycleAudioTake(self: *App, track_index: usize, clip_index: usize, delta: i32) void {
-        if (track_index >= self.session.arrangement.lanes.items.len) return;
+        if (track_index >= self.session.arrangement.lanes.items.len) {
+            self.setStatus("take: no audio clip selected", .{});
+            return;
+        }
         const lane = &self.session.arrangement.lanes.items[track_index];
-        if (clip_index >= lane.clips.items.len) return;
+        if (clip_index >= lane.clips.items.len) {
+            self.setStatus("take: no audio clip selected", .{});
+            return;
+        }
         const take_count = switch (lane.clips.items[clip_index].content) {
             .audio => |audio| audio.takeCount(),
             else => 0,

@@ -4122,6 +4122,22 @@ test "audio panel keys turn selected region into slicer or sampler" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.3), app.session.racks.items[0].instrument.sampler.pad.samples[0], 1e-6);
 }
 
+test "audio editor take key reports empty selection in its status row" {
+    var app = try testApp();
+    defer app.deinit();
+    try app.session.setInstrument(0, .audio);
+    app.audio_track = 0;
+    app.audio_clip = 0;
+    app.view = .audio_editor;
+
+    app.handleKey(.{ .char = '[' }, 0);
+    try std.testing.expectEqualStrings("take: no audio clip selected", app.status_buf[0..app.status_len]);
+    var buf: [32 * 1024]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try tui_mod.draw(&app, &w, .{ .cols = 100, .rows = 30 });
+    try std.testing.expect(std.mem.indexOf(u8, w.buffered(), "take: no audio clip selected") != null);
+}
+
 test "audio editor brackets audition alternate takes" {
     var app = try testApp();
     defer app.deinit();
