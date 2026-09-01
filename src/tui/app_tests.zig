@@ -5244,6 +5244,28 @@ test "track delete shifts slicer_track like every other editor-target index" {
     try std.testing.expectEqual(AppView.slicer_grid, app.view);
 }
 
+test "track delete remaps pending and active audio recording targets" {
+    var app = try testApp();
+    defer app.deinit();
+    app.recording_pending_buf[0] = 1;
+    app.recording_pending_buf[1] = 2;
+    app.recording_pending_len = 2;
+    app.recording_active_buf[0] = 1;
+    app.recording_active_buf[1] = 2;
+    app.recording_active_len = 2;
+    try app.recording_accum.append(app.allocator, 0.5);
+
+    app.doTrackDel(1);
+    try std.testing.expectEqualSlices(u16, &.{1}, app.recording_pending_buf[0..app.recording_pending_len]);
+    try std.testing.expectEqualSlices(u16, &.{1}, app.recording_active_buf[0..app.recording_active_len]);
+    try std.testing.expectEqual(@as(usize, 1), app.recording_accum.items.len);
+
+    app.doTrackDel(1);
+    try std.testing.expectEqual(@as(usize, 0), app.recording_pending_len);
+    try std.testing.expectEqual(@as(usize, 0), app.recording_active_len);
+    try std.testing.expectEqual(@as(usize, 0), app.recording_accum.items.len);
+}
+
 test "track delete re-heals the row cursor when the row list reshapes under an unchanged cursor" {
     var app = try testApp();
     defer app.deinit();

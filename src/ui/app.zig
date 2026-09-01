@@ -3094,6 +3094,23 @@ pub const App = struct {
         }
     }
 
+    fn cancelActiveRecording(self: *App) void {
+        if (self.audio_input.active != .none and self.input_monitor != .on) self.audio_input.stop();
+        if (self.resample_source != .off) self.session.engine.setResampleSource(.off);
+        if (self.recording_take) |*take| {
+            take.finish();
+            take.discard();
+        }
+        self.recording_take = null;
+        self.recording_active_len = 0;
+        self.recording_accum.clearRetainingCapacity();
+        self.recording_dropout_frames = 0;
+        self.recording_first_dropout_frame = null;
+        self.recording_capture_base_frame = null;
+        self.recording_loop_start_bar = null;
+        self.recording_loop_end_bar = null;
+    }
+
     pub fn setInputMonitor(self: *App, mode: InputMonitor) bool {
         if (mode == .on and self.audio_input.active == .none) {
             self.audio_input.start(self.session.project.sample_rate, self.audio_input_device.slice()) catch {
@@ -4494,6 +4511,24 @@ pub const App = struct {
                 .slice   => |*t| remapField(t, op),
             }
         }
+        const remapTrackList = struct {
+            fn f(items: []u16, len: *usize, op_: undo_mod.TrackRemap) void {
+                var i: usize = 0;
+                while (i < len.*) {
+                    if (op_.apply(items[i])) |track| {
+                        items[i] = track;
+                        i += 1;
+                    } else {
+                        std.mem.copyForwards(u16, items[i .. len.* - 1], items[i + 1 .. len.*]);
+                        len.* -= 1;
+                    }
+                }
+            }
+        }.f;
+        remapTrackList(&self.recording_pending_buf, &self.recording_pending_len, op);
+        const active_before = self.recording_active_len;
+        remapTrackList(&self.recording_active_buf, &self.recording_active_len, op);
+        if (active_before > 0 and self.recording_active_len == 0) self.cancelActiveRecording();
         // A clip link has no sentinel to bounce to - it is dropped outright.
         if (self.piano_clip_link) |link| {
             if (op.apply(link.track)) |t| self.piano_clip_link.?.track = t
