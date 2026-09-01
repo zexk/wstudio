@@ -4991,6 +4991,8 @@ test "structural track changes remap every editor-target field" {
     app.reference_active = true;
     app.cc_learn = .{ .track = 2, .param_id = 1, .center = 0, .lo = 0, .hi = 1 };
     app.cc_learn_seq = 7;
+    app.eq_spectrum_frozen = true;
+    app.eq_spectrum_frozen_snap = .{ .bins = @splat(-12) };
 
     // Insert at 1: everything from index 1 up shifts, index 0 stays put.
     app.remapTrackFields(.{ .insert = 1 });
@@ -5001,6 +5003,8 @@ test "structural track changes remap every editor-target field" {
     try std.testing.expectEqual(@as(u16, 3), app.cc_learn.?.track);
     try std.testing.expectEqual(@as(u16, 2), app.sampler_target.sampler);
     try std.testing.expectEqual(@as(u16, 3), app.piano_clip_link.?.track);
+    try std.testing.expect(app.eq_spectrum_frozen);
+    try std.testing.expect(app.eq_spectrum_frozen_snap == null);
 
     // A swap exchanges only the two indices it names.
     app.remapTrackFields(.{ .swap = .{ .a = 0, .b = 3 } });
@@ -5886,9 +5890,13 @@ test ":group-add/:rename/:group-del/:track-group/:group-fx" {
     app.handleKey(.enter, 0);
     try std.testing.expectEqual(@as(?u8, null), app.session.project.tracks.items[2].group);
 
+    app.eq_spectrum_frozen = true;
+    app.eq_spectrum_frozen_snap = .{ .bins = @splat(-12) };
     typeKeys(&app, ":group-del 1");
     app.handleKey(.enter, 0);
     try std.testing.expect(app.session.groups[0] == null);
+    try std.testing.expect(app.eq_spectrum_frozen);
+    try std.testing.expect(app.eq_spectrum_frozen_snap == null);
 }
 
 test "c toggles the click track" {

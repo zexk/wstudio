@@ -2741,6 +2741,7 @@ pub const App = struct {
     }
 
     pub fn prepareGroupDelete(self: *App, g: u8) void {
+        self.eq_spectrum_frozen_snap = null;
         if (self.view == .group_spectrum and self.eq_group == g) self.view = .tracks;
         _ = history.dropGroupPending(self, g);
         if (self.resample_source == .group and self.resample_source.group == g) self.resample_source = .off;
@@ -4481,6 +4482,7 @@ pub const App = struct {
     /// that sentinel names no track at all, so no later op disturbs it.
     pub fn remapTrackFields(self: *App, op: undo_mod.TrackRemap) void {
         self.retrospective_midi_len = 0;
+        self.eq_spectrum_frozen_snap = null;
         const remapField = struct {
             fn f(field: *u16, op_: undo_mod.TrackRemap) void {
                 if (field.* == std.math.maxInt(u16)) return;
