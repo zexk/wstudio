@@ -1014,12 +1014,12 @@ test "audio_backend option accepts backend names and rejects unknowns" {
 test "preferred_frontend option and setFrontend correction" {
     var rt = try Runtime.init(.tui);
     defer rt.deinit();
-    try rt.loadString("assert(wstudio.o.preferred_frontend == 'tui'); wstudio.o.preferred_frontend = 'gui'");
-    try std.testing.expectEqual(Frontend.gui, rt.config.preferred_frontend);
+    try rt.loadString("assert(wstudio.o.preferred_frontend == 'gui'); wstudio.o.preferred_frontend = 'tui'");
+    try std.testing.expectEqual(Frontend.tui, rt.config.preferred_frontend);
     try std.testing.expectError(error.LuaError, rt.loadString("wstudio.o.preferred_frontend = 'web'"));
     rt.setFrontend(rt.config.preferred_frontend);
-    try std.testing.expectEqual(Frontend.gui, rt.frontend);
-    try rt.loadString("assert(wstudio.frontend == 'gui')");
+    try std.testing.expectEqual(Frontend.tui, rt.frontend);
+    try rt.loadString("assert(wstudio.frontend == 'tui')");
 }
 
 test "require path includes the user lua dir" {

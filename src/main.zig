@@ -1,5 +1,5 @@
 //! Executable entry point. `wstudio` launches the frontend picked by
-//! init.lua's `wstudio.o.preferred_frontend` (default: TUI), `--tui` and
+//! init.lua's `wstudio.o.preferred_frontend` (default: GUI), `--tui` and
 //! `--gui` force one, and `wstudio render` runs the
 //! offline pipeline demo: keystrokes -> modal input -> note events ->
 //! synth -> compressor -> delay -> reverb, bounced to a WAV.
@@ -184,7 +184,7 @@ fn printHelp(io: std.Io) !void {
         "wstudio {s} - digital audio workstation\n\n" ++
             "Usage:\n" ++
             "  wstudio [path]      Launch the preferred frontend (wstudio.o.preferred_frontend,\n" ++
-            "                      default tui), optionally opening a .wsj project\n" ++
+            "                      default gui), optionally opening a .wsj project\n" ++
             "  wstudio --tui [path] Launch the TUI, optionally opening a .wsj project\n" ++
             "  wstudio --gui [path] Launch the GUI, optionally opening a .wsj project\n" ++
             "  wstudio render      Render the built-in demo melody to out.wav\n" ++

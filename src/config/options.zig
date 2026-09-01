@@ -62,7 +62,7 @@ pub const PathBuf = struct {
 };
 
 pub const Config = struct {
-    preferred_frontend: Frontend = .tui,
+    preferred_frontend: Frontend = .gui,
     default_tempo: f64 = 120.0,
     default_sample_rate: u32 = 48_000,
     default_beats_per_bar: u8 = 4,

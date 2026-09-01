@@ -21,9 +21,9 @@ hunting before the first note.
 
 ```sh
 nix develop                     # zig, zls, audio libs
-zig build run                   # launch the TUI on a blank project
+zig build run                   # launch the GUI on a blank project
 zig build run -- demo.wsj       # open the curated four-track demo
-zig build run -- --gui demo.wsj # open the GUI instead
+zig build run -- --tui demo.wsj # open the TUI instead
 zig build run -- render demo.wsj demo.wav # render saved project without frontend
 zig build run -- render-stems demo.wsj stems # render each track without frontend
 ```
