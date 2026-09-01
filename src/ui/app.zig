@@ -4534,6 +4534,14 @@ pub const App = struct {
         const active_before = self.recording_active_len;
         remapTrackList(&self.recording_active_buf, &self.recording_active_len, op);
         if (active_before > 0 and self.recording_active_len == 0) self.cancelActiveRecording();
+        if (self.cc_learn) |*target| {
+            if (op.apply(target.track)) |track| {
+                target.track = track;
+            } else {
+                self.cc_learn = null;
+                self.cc_learn_seq = null;
+            }
+        }
         // A clip link has no sentinel to bounce to - it is dropped outright.
         if (self.piano_clip_link) |link| {
             if (op.apply(link.track)) |t| self.piano_clip_link.?.track = t
@@ -4927,6 +4935,8 @@ pub const App = struct {
         self.pending_fx_nudge = null;
         self.note_off_len = 0;
         self.retrospective_midi_len = 0;
+        self.cc_learn = null;
+        self.cc_learn_seq = null;
         self.piano_clip_link = null;
         self.automation_clip = null;
         if (self.arr_range_clip) |clip| clip.deinit(self.allocator);

@@ -4989,6 +4989,8 @@ test "structural track changes remap every editor-target field" {
     app.piano_clip_link = .{ .track = 2, .start_tick = 0 };
     app.reference_track = 2;
     app.reference_active = true;
+    app.cc_learn = .{ .track = 2, .param_id = 1, .center = 0, .lo = 0, .hi = 1 };
+    app.cc_learn_seq = 7;
 
     // Insert at 1: everything from index 1 up shifts, index 0 stays put.
     app.remapTrackFields(.{ .insert = 1 });
@@ -4996,6 +4998,7 @@ test "structural track changes remap every editor-target field" {
     try std.testing.expectEqual(@as(u16, 0), app.synth_track);
     try std.testing.expectEqual(@as(u16, 3), app.drum_track);
     try std.testing.expectEqual(@as(u16, 2), app.audio_track);
+    try std.testing.expectEqual(@as(u16, 3), app.cc_learn.?.track);
     try std.testing.expectEqual(@as(u16, 2), app.sampler_target.sampler);
     try std.testing.expectEqual(@as(u16, 3), app.piano_clip_link.?.track);
 
@@ -5004,6 +5007,7 @@ test "structural track changes remap every editor-target field" {
     try std.testing.expectEqual(@as(u16, 3), app.synth_track);
     try std.testing.expectEqual(@as(u16, 0), app.drum_track);
     try std.testing.expectEqual(@as(u16, 2), app.audio_track);
+    try std.testing.expectEqual(@as(u16, 0), app.cc_learn.?.track);
     try std.testing.expectEqual(@as(u16, 0), app.piano_clip_link.?.track);
 
     app.note_offs[0] = .{ .at_ns = 0, .track = 0, .note = 60 };
@@ -5016,6 +5020,8 @@ test "structural track changes remap every editor-target field" {
     try std.testing.expectEqual(@as(u16, 2), app.synth_track);
     try std.testing.expectEqual(@as(u16, std.math.maxInt(u16)), app.drum_track);
     try std.testing.expectEqual(@as(u16, 1), app.audio_track);
+    try std.testing.expect(app.cc_learn == null);
+    try std.testing.expect(app.cc_learn_seq == null);
     try std.testing.expectEqual(@as(u16, 1), app.sampler_target.sampler);
     try std.testing.expect(app.piano_clip_link == null);
     // The reference went with the track it named, and the A/B session with
@@ -5466,6 +5472,8 @@ test "session swap resets view, editor targets, and undo history" {
     app.audio_clip = 9;
     app.reference_track = 2;
     app.reference_active = true;
+    app.cc_learn = .{ .track = 2, .param_id = 1, .center = 0, .lo = 0, .hi = 1 };
+    app.cc_learn_seq = 7;
     app.reference_saved_solo[0] = true;
     app.reference_saved_group_solo[0] = true;
     app.alt_context = .{
@@ -5516,6 +5524,8 @@ test "session swap resets view, editor targets, and undo history" {
     try std.testing.expect(app.alt_context == null);
     try std.testing.expect(app.reference_track == null);
     try std.testing.expect(!app.reference_active);
+    try std.testing.expect(app.cc_learn == null);
+    try std.testing.expect(app.cc_learn_seq == null);
     try std.testing.expect(!app.reference_saved_solo[0]);
     try std.testing.expect(!app.reference_saved_group_solo[0]);
     try std.testing.expect(!app.dirty);
