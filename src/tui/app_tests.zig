@@ -10428,6 +10428,21 @@ test "opening an EQ restores the analyzer pre preference" {
     try std.testing.expect(app.session.engine.spectrum_pre);
 }
 
+test "changing FX focus invalidates the frozen spectrum snapshot" {
+    var app = try testApp();
+    defer app.deinit();
+    const fx = &app.session.racks.items[0].fx;
+    _ = try fx.insert(app.session.allocator, 0, .eq, app.session.project.sample_rate);
+    _ = try fx.insert(app.session.allocator, 1, .eq, app.session.project.sample_rate);
+    app.eq_spectrum_frozen = true;
+    app.eq_spectrum_frozen_snap = .{ .bins = @splat(-12) };
+
+    spectrum_ed.setFocus(&app, .track, 1);
+
+    try std.testing.expect(app.eq_spectrum_frozen);
+    try std.testing.expect(app.eq_spectrum_frozen_snap == null);
+}
+
 test "FX chain: insert/bypass/remove are each their own undoable step" {
     var app = try testApp();
     defer app.deinit();

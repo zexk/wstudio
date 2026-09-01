@@ -686,6 +686,7 @@ fn syncAnalyzer(app: *App, target: EqTarget) void {
 /// since a batch is scoped to one (target, unit, param) triple.
 pub fn setFocus(app: *App, target: EqTarget, idx: usize) void {
     history.flushFxNudge(app);
+    app.eq_spectrum_frozen_snap = null;
     app.fx_focus = idx;
     app.fx_param = 0;
     app.eq_band_select = true;
