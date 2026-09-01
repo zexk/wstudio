@@ -659,6 +659,7 @@ fn syncChain(app: *App, target: EqTarget) void {
 /// one has focus, park it otherwise (and on leaving the view) so the engine
 /// skips FFT work nobody is looking at.
 fn syncAnalyzer(app: *App, target: EqTarget) void {
+    _ = app.session.engine.send(.{ .set_spectrum_pre = app.eq_spectrum_pre });
     const focused: ?*FxUnit = if (fxPtr(app, target)) |fx| blk: {
         const u = focusedUnit(app, fx) orelse break :blk null;
         break :blk if (u.kind() == .eq) u else null;

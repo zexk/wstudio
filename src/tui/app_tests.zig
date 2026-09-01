@@ -10415,6 +10415,19 @@ test "FX chain: EQ kind field cycles all types and switches gain or slope contro
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), eq.bands[0].gain_db, 0.0001);
 }
 
+test "opening an EQ restores the analyzer pre preference" {
+    var app = try testApp();
+    defer app.deinit();
+    _ = try app.session.racks.items[0].fx.insert(app.session.allocator, 0, .eq, app.session.project.sample_rate);
+    app.eq_spectrum_pre = true;
+
+    spectrum_ed.switchToTrack(&app, 0);
+    var block: [64]types.Sample = undefined;
+    app.session.engine.process(&block);
+
+    try std.testing.expect(app.session.engine.spectrum_pre);
+}
+
 test "FX chain: insert/bypass/remove are each their own undoable step" {
     var app = try testApp();
     defer app.deinit();
