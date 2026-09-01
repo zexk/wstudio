@@ -5487,6 +5487,7 @@ test "session swap resets view, editor targets, and undo history" {
     app.handleKey(.{ .char = 'y' }, 0);
     try std.testing.expect(app.arr_range_clip != null);
     app.last_edit = .{ .arr_move_clip = .{ .delta = 1 } };
+    app.dirty = true;
     app.view = .drum_grid;
     history.push(&app, history.captureDrum(&app, 2));
     app.playNote(2, 60, 0);
@@ -5515,6 +5516,7 @@ test "session swap resets view, editor targets, and undo history" {
     try std.testing.expect(!app.reference_active);
     try std.testing.expect(!app.reference_saved_solo[0]);
     try std.testing.expect(!app.reference_saved_group_solo[0]);
+    try std.testing.expect(!app.dirty);
     try std.testing.expect(app.arr_range_clip == null);
     try std.testing.expectEqual(app_mod.RepeatOp.none, app.last_edit);
     try std.testing.expect(app.projectPath() == null);
