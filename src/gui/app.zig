@@ -64,6 +64,27 @@ pub const App = struct {
         self.core.deinit();
     }
 
+    pub fn resetForNewSession(self: *App) void {
+        self.arrangement_clip = null;
+        self.arrangement_drag = null;
+        self.piano_mouse_edit = null;
+        self.eq_drag_band = null;
+        self.eq_analyzer_key = null;
+        self.waveform_drag = null;
+        self.waveform_slice_glow = @splat(0);
+        self.waveform_glow_last_ns = 0;
+        self.automation_edit_active = false;
+        self.piano_velocity_edit_active = false;
+        self.instrument_edit_active = false;
+        self.synth_edit_active = false;
+        self.track_mixer_edit = null;
+        self.group_gain_edit = null;
+        self.meter_hold_db = .{ -100, -100 };
+        self.track_meter_hold_db = [_][2]f32{.{ -100, -100 }} ** ws.engine.max_tracks;
+        self.group_meter_hold_db = [_][2]f32{.{ -100, -100 }} ** ws.engine.max_groups;
+        self.meter_last_ns = 0;
+    }
+
     pub fn startPluginScan(self: *App) void {
         if (self.plugin_scan_phase != .idle) return;
         const environ = self.core.environ orelse {
@@ -504,6 +525,36 @@ test "GUI analyzer cache distinguishes FX units on one chain" {
     fx_eq.ensureEqAnalyzer(&app, .track, second);
     app.core.session.engine.process(&block);
     try std.testing.expectEqual(@as(?*anyopaque, second), app.core.session.engine.active_spectrum_target);
+}
+
+test "GUI session reset clears old selections and gestures" {
+    var app: App = .{ .core = try app_mod.App.init(std.testing.allocator, std.Io.failing) };
+    defer app.deinit();
+    app.arrangement_clip = .{ .track = 0, .clip = 0, .start_tick = 0 };
+    app.arrangement_drag = .{ .selection = app.arrangement_clip.?, .target_tick = 4, .grab_offset_tick = 1 };
+    app.piano_mouse_edit = .{ .kind = .move, .source_pitch = 60, .source_step = 0, .target_pitch = 61, .target_step = 1, .duration_steps = 1 };
+    app.eq_drag_band = 1;
+    app.eq_analyzer_key = .{ .source = 1, .unit = null };
+    app.waveform_drag = .start;
+    app.automation_edit_active = true;
+    app.instrument_edit_active = true;
+    app.track_mixer_edit = .{ .track = 0, .field = .gain, .before = -6 };
+    app.group_gain_edit = .{ .group = 0, .before = -3 };
+    app.meter_hold_db = .{ 0, 0 };
+
+    app.resetForNewSession();
+
+    try std.testing.expect(app.arrangement_clip == null);
+    try std.testing.expect(app.arrangement_drag == null);
+    try std.testing.expect(app.piano_mouse_edit == null);
+    try std.testing.expect(app.eq_drag_band == null);
+    try std.testing.expect(app.eq_analyzer_key == null);
+    try std.testing.expect(app.waveform_drag == null);
+    try std.testing.expect(!app.automation_edit_active);
+    try std.testing.expect(!app.instrument_edit_active);
+    try std.testing.expect(app.track_mixer_edit == null);
+    try std.testing.expect(app.group_gain_edit == null);
+    try std.testing.expectEqual([2]f32{ -100, -100 }, app.meter_hold_db);
 }
 
 // Zig only analyzes tests in files the test root references explicitly, so a

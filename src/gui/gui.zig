@@ -291,6 +291,7 @@ pub fn run(init: std.process.Init, init_path: ?[]const u8, runtime: *config_mod.
                 using_midi = false;
             }
             app.core.installPreparedReload(prepared);
+            app.resetForNewSession();
             audio = app.core.audioHost(user_config.audio_block_frames, user_config.audio_output_device.slice());
             // A restart failure here leaves the session silent rather
             // than tearing down a running app with unsaved work in it -
