@@ -194,12 +194,12 @@
           inherit version;
           meta = wstudioMeta pkgs;
           src = self;
-          zigDeps = pkgs.zig.fetchDeps {
+          zigDeps = pkgs.zig_0_16.fetchDeps {
             inherit (finalAttrs) pname version src;
             hash = zigDepsHash;
           };
           nativeBuildInputs = [
-            pkgs.zig.hook
+            pkgs.zig_0_16.hook
             pkgs.pkg-config
             pkgs.installShellFiles
           ];
@@ -269,12 +269,12 @@
           inherit version;
           meta = wstudioMeta pkgs;
           src = self;
-          zigDeps = pkgs.zig.fetchDeps {
+          zigDeps = pkgs.zig_0_16.fetchDeps {
             inherit (finalAttrs) pname version src;
             hash = zigDepsHash;
           };
           nativeBuildInputs = [
-            pkgs.zig.hook
+            pkgs.zig_0_16.hook
             pkgs.pkg-config
           ];
           buildInputs = cLibs pkgs;
@@ -292,12 +292,12 @@
           inherit version;
           meta = wstudioMeta pkgs;
           src = self;
-          zigDeps = pkgs.zig.fetchDeps {
+          zigDeps = pkgs.zig_0_16.fetchDeps {
             inherit (finalAttrs) pname version src;
             hash = zigDepsHash;
           };
           nativeBuildInputs = [
-            pkgs.zig.hook
+            pkgs.zig_0_16.hook
             targetPkgs.stdenv.cc.bintools.bintools
           ];
           WSTUDIO_TARGET_PREFIX = targetPrefix targetPkgs pkgs;
@@ -399,7 +399,7 @@
             packages =
               with pkgs;
               [
-                zig
+                zig_0_16
                 zls
                 pkg-config
               ]
@@ -439,7 +439,7 @@
         );
         windows-arm64 = pkgs.mkShell {
           packages = [
-            pkgs.zig
+            pkgs.zig_0_16
             (windowsArm64Pkgs pkgs).stdenv.cc.bintools.bintools
           ];
           WSTUDIO_TARGET_PREFIX = targetPrefix (windowsArm64Pkgs pkgs) pkgs;
